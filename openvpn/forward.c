@@ -135,32 +135,30 @@ check_tls_errors_nco (struct context *c)
 void
 check_incoming_control_channel_dowork (struct context *c)
 {
-  const int len = tls_test_payload_len (c->c2.tls_multi);
-  if (len)
+  struct mbuf_item item;
+
+  if (tls_rec_payload (c->c2.tls_multi, &item))
     {
-      struct gc_arena gc = gc_new ();
-      struct buffer buf = alloc_buf_gc (len, &gc);
-      if (tls_rec_payload (c->c2.tls_multi, &buf))
-	{
-	  /* force null termination of message */
-	  buf_null_terminate (&buf);
+      struct buffer *buf = &item.buffer->buf;
 
-	  /* enforce character class restrictions */
-	  string_mod (BSTR (&buf), CC_PRINT, CC_CRLF, 0);
+      /* force null termination of message */
+      buf_null_terminate (buf);
 
-	  if (buf_string_match_head_str (&buf, "AUTH_FAILED"))
-	    receive_auth_failed (c, &buf);
-	  else if (buf_string_match_head_str (&buf, "PUSH_"))
-	    incoming_push_message (c, &buf);
-	  else
-	    msg (D_PUSH_ERRORS, "WARNING: Received unknown control message: %s", BSTR (&buf));
-	}
+      /* enforce character class restrictions */
+      string_mod (BSTR (buf), CC_PRINT, CC_CRLF, 0);
+
+      if (buf_string_match_head_str (buf, "AUTH_FAILED"))
+	receive_auth_failed (c, buf);
+      else if (buf_string_match_head_str (buf, "PUSH_"))
+	incoming_push_message (c, buf);
       else
-	{
-	  msg (D_PUSH_ERRORS, "WARNING: Receive control message failed");
-	}
+	msg (D_PUSH_ERRORS, "WARNING: Received unknown control message: %s", BSTR (buf));
 
-      gc_free (&gc);
+      mbuf_free_buf (item.buffer);
+    }
+  else
+    {
+      msg (D_PUSH_ERRORS, "WARNING: Receive control message failed");
     }
 }
 
@@ -223,13 +221,16 @@ check_connection_established_dowork (struct context *c)
 bool
 send_control_channel_string (struct context *c, const char *str, int msglevel)
 {
-#if defined(USE_CRYPTO) && defined(USE_SSL)
-
+#if P2MP
   if (c->c2.tls_multi) {
     bool stat;
+    struct mbuf_item item;
 
     /* buffered cleartext write onto TLS control channel */
-    stat = tls_send_payload (c->c2.tls_multi, str, strlen (str) + 1);
+    item.buffer = mbuf_alloc_string (str, SAB_INCLUDE_NULL);
+    item.arg = MBUF_DEFINED;
+    stat = tls_send_payload (c->c2.tls_multi, &item);
+    mbuf_free_buf (item.buffer);
 
     /* reschedule tls_multi_process */
     interval_action (&c->c2.tmp_int);
@@ -1298,7 +1299,7 @@ io_wait_dowork (struct context *c, const unsigned int flags)
 #endif
 
 #ifdef USE_PTHREAD
-  if (c->c1.work_thread)
+  if (c->c1.work_thread && !((socket|tuntap) & EVENT_WRITE))
     work_thread_socket_set (c->c1.work_thread, c->c2.event_set, (void*)&work_thread_shift, NULL);
 #endif
 

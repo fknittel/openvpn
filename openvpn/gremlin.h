@@ -67,5 +67,7 @@ bool ask_gremlin (int flags);
 void corrupt_gremlin (struct buffer* buf, int flags);
 struct packet_flood_parms get_packet_flood_parms (int level);
 
+unsigned int gremlin_parse_option (const char *parm, const int msglevel);
+
 #endif
 #endif

@@ -45,6 +45,11 @@
 #include "thread.h"
 #include "options.h"
 #include "plugin.h"
+#include "mbuf.h"
+
+#if P2MP
+#define TLS_CHANNEL
+#endif
 
 /*
  * OpenVPN TLS-over-UDP Protocol.
@@ -280,6 +285,8 @@ struct key_state
    * If bad username/password, TLS connection will come up but 'authenticated' will be false.
    */
   bool authenticated;
+
+  bool wrote_ciphertext;
 };
 
 /*
@@ -403,6 +410,11 @@ struct tls_session
   /* not-yet-authenticated incoming client */
   struct sockaddr_in untrusted_sockaddr;
 
+#ifdef TLS_CHANNEL
+  struct mbuf_set *channel_incoming;
+  struct mbuf_set *channel_outgoing;
+#endif
+
   struct key_state key[KS_SIZE];
 };
 
@@ -465,8 +477,8 @@ struct tls_multi
 
 #ifdef USE_PTHREAD
   /* multithread object for offloading high-latency functions */
-  bool busy;
   struct work_thread *work_thread;
+  struct thread_context *thread_context;
 #endif
 
   /*
@@ -543,13 +555,6 @@ void tls_set_verify_x509name (const char *x509name);
 
 void tls_adjust_frame_parameters(struct frame *frame);
 
-bool tls_send_payload (struct tls_multi *multi,
-		       const uint8_t *data,
-		       int size);
-
-bool tls_rec_payload (struct tls_multi *multi,
-		      struct buffer *buf);
-
 const char *tls_common_name (struct tls_multi* multi, bool null);
 void tls_set_common_name (struct tls_multi *multi, const char *common_name);
 void tls_lock_common_name (struct tls_multi *multi);
@@ -558,24 +563,24 @@ bool tls_authenticated (struct tls_multi *multi);
 void tls_deauthenticate (struct tls_multi *multi);
 
 #ifdef USE_PTHREAD
-void tls_set_work_thread (struct tls_multi *multi, struct work_thread *wt);
+void tls_set_work_thread (struct tls_multi *multi, struct work_thread *wt, struct thread_context *tc);
 #endif
 
-/*
- * inline functions
- */
+#ifdef TLS_CHANNEL
 
-static inline int
-tls_test_payload_len (const struct tls_multi *multi)
+#define TLS_PAYLOAD_QUEUE_LEN 16
+
+bool tls_rec_payload (struct tls_multi *multi, struct mbuf_item *item);
+
+bool tls_send_payload (struct tls_multi *multi, const struct mbuf_item *item);
+
+static inline bool
+tls_test_payload (const struct tls_multi *multi)
 {
-  if (multi)
-    {
-      const struct key_state *ks = &multi->session[TM_ACTIVE].key[KS_PRIMARY];
-      if (ks->state >= S_ACTIVE)
-	return BLEN (&ks->plaintext_read_buf);
-    }
-  return 0;
+  return multi && mbuf_defined (multi->session[TM_ACTIVE].channel_incoming);
 }
+
+#endif
 
 /*
  * protocol_dump() flags

@@ -32,6 +32,7 @@
  * Baseline maximum number of events
  * to wait for.
  */
+
 #define BASE_N_EVENTS 4
 
 void context_clear (struct context *c);

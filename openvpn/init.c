@@ -2002,14 +2002,52 @@ do_inherit_env (struct context *c, const struct env_set *src)
  * Initialize/Uninitialize work thread
  */
 
+#ifdef USE_PTHREAD
+
+static void *
+do_thread_save (struct thread_context *tc)
+{
+  ASSERT (tc->thread_level == TL_INACTIVE);
+  tc->thread_level = TL_LIGHT;
+  return NULL;
+}
+
+static void
+do_thread_restore (struct thread_context *tc,
+		   void *save_data)
+{
+  struct context *c = (struct context *)tc->arg1;
+  ASSERT (tc->thread_level == TL_LIGHT);
+  tc->thread_level = TL_INACTIVE;
+  reset_coarse_timers (c);
+}
+
+static void
+init_thread_context (struct context *c)
+{
+  struct thread_context *tc = &c->c2.thread_context;
+  tc->thread_level = TL_INACTIVE;
+  tc->flags = 0;
+  tc->arg1 = (void *)c;
+  tc->arg2 = NULL;
+  tc->save = do_thread_save;
+  tc->restore = do_thread_restore;
+}
+
+#endif
+
 static void
 do_init_pthread (struct context *c)
 {
 #ifdef USE_PTHREAD
   if (!c->c1.work_thread && c->options.n_threads >= 2)
-    c->c1.work_thread = work_thread_init (c->options.n_threads, c->options.nice_work);
+    {
+      c->c1.work_thread = work_thread_init (c->options.n_threads, c->options.nice_work);
+      c->c1.work_thread_owned = true;
+    }
   if (c->c1.work_thread && c->c2.tls_multi)
-    tls_set_work_thread (c->c2.tls_multi, c->c1.work_thread);
+    tls_set_work_thread (c->c2.tls_multi, c->c1.work_thread, &c->c2.thread_context);
+  init_thread_context (c);
 #endif
 }
 
@@ -2017,10 +2055,11 @@ static void
 do_close_pthread (struct context *c)
 {
 #ifdef USE_PTHREAD
-  if (c->sig->signal_received != SIGUSR1 && c->c1.work_thread)
+  if (c->sig->signal_received != SIGUSR1 && c->c1.work_thread && c->c1.work_thread_owned)
     {
       work_thread_close (c->c1.work_thread);
       c->c1.work_thread = NULL;
+      c->c1.work_thread_owned = false;
     }
 #endif
 }
@@ -2390,7 +2429,7 @@ init_instance (struct context *c, const struct env_set *env, unsigned int flags)
     post_init_signal_catch ();
 
   /* start work thread here */
-  if (c->mode == CM_P2P || c->mode == CM_TOP)
+  if (c->mode == CM_P2P || c->mode == CM_TOP || child)
     do_init_pthread (c);
 
   /*
@@ -2521,6 +2560,10 @@ inherit_context_child (struct context *dest,
 #endif
 #endif
 
+#ifdef USE_PTHREAD
+  dest->c1.work_thread = src->c1.work_thread;
+#endif
+
   /* options */
   dest->options = src->options;
   options_detach (&dest->options);
@@ -2597,6 +2640,10 @@ inherit_context_top (struct context *dest,
   dest->c2.event_set_owned = false;
   dest->c2.link_socket_owned = false;
   dest->c2.buffers_owned = false;
+
+#ifdef USE_PTHREAD
+  dest->c1.work_thread_owned = false;
+#endif
 
   dest->c2.event_set = NULL;
   if (src->options.proto == PROTO_UDPv4)

@@ -93,11 +93,12 @@ ssl_thread_cleanup (void)
 
 struct sparse_mutex mutex_array[N_MUTEXES]; /* GLOBAL */
 bool pthread_initialized;                   /* GLOBAL */
+openvpn_thread_t primary_thread_id;         /* GLOBAL */
 
 static void
 do_mutex_init (pthread_mutex_t *mutex)
 {
-  ASSERT(!pthread_mutex_init (mutex, NULL));
+  ASSERT (!pthread_mutex_init (mutex, NULL));
 }
 
 openvpn_thread_t
@@ -139,6 +140,8 @@ openvpn_thread_init ()
 
   msg_thread_init ();
 
+  primary_thread_id = pthread_self();
+
   pthread_initialized = true;
 }
 
@@ -161,6 +164,8 @@ openvpn_thread_cleanup ()
 	ASSERT (!pthread_mutex_destroy (&mutex_array[i].mutex));
 
       msg_thread_uninit ();
+
+      primary_thread_id = 0;
     }
 }
 

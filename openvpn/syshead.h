@@ -379,6 +379,7 @@ socket_defined (const socket_descriptor_t sd)
 #ifdef USE_PTHREAD
 #if defined(USE_CRYPTO) && defined(USE_SSL) && P2MP
 #include <pthread.h>
+#define EVENT_SET_OVERRIDE
 #else
 #undef USE_PTHREAD
 #endif

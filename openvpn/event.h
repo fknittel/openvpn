@@ -82,9 +82,25 @@ struct event_set_return
   void *arg;
 };
 
+#ifdef EVENT_SET_OVERRIDE
+
+#define ESRF_CAPACITY 4
+
+struct esr_fixed
+{
+  int len;
+  struct event_set_return array[ESRF_CAPACITY];
+};
+
+#endif
+
 struct event_set
 {
   struct event_set_functions func;
+
+#ifdef EVENT_SET_OVERRIDE
+  struct esr_fixed *override;
+#endif
 };
 
 /*
@@ -95,6 +111,15 @@ struct event_set
  * flags:               EVENT_METHOD_x flags
  */
 struct event_set *event_set_init (int *maxevents, unsigned int flags);
+
+#ifdef EVENT_SET_OVERRIDE
+/*
+ * Force a future wait to return esr regardless of actual
+ * event state.  One-time only, will be reset after the next
+ * wait.
+ */
+bool event_ctl_override (struct event_set *es, const struct event_set_return *esr);
+#endif
 
 static inline void
 event_free (struct event_set *es)

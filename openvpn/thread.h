@@ -44,7 +44,8 @@
 #define L_SYSTEM       9
 #define L_CREATE_TEMP  10
 #define L_PLUGIN       11
-#define N_MUTEXES      12
+#define L_VOUT         12
+#define N_MUTEXES      13
 
 #ifdef USE_PTHREAD
 
@@ -68,6 +69,8 @@ extern bool pthread_initialized;
 
 extern struct sparse_mutex mutex_array[N_MUTEXES];
 
+extern openvpn_thread_t primary_thread_id;
+
 #define MUTEX_DEFINE(lock) pthread_mutex_t lock
 #define MUTEX_PTR_DEFINE(lock) pthread_mutex_t *lock
 
@@ -81,6 +84,12 @@ static inline openvpn_thread_t
 openvpn_thread_self (void)
 {
   return pthread_initialized ? pthread_self() : 0;
+}
+
+static inline bool
+openvpn_thread_primary (void)
+{
+  return !pthread_initialized || primary_thread_id == pthread_self();
 }
 
 static inline void
@@ -140,6 +149,12 @@ static inline void
 mutex_lock_static (int type)
 {
   mutex_lock (&mutex_array[type].mutex);
+}
+
+static inline bool
+mutex_trylock_static (int type)
+{
+  return mutex_trylock (&mutex_array[type].mutex);
 }
 
 static inline void
@@ -229,6 +244,12 @@ mutex_unlock_static (int type)
 static inline void
 mutex_cycle_static (int type)
 {
+}
+
+static inline bool
+openvpn_thread_primary (void)
+{
+  return true;
 }
 
 #endif /* USE_PTHREAD */

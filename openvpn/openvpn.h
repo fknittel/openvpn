@@ -162,9 +162,6 @@ struct context_1
   struct plugin_list *plugins;
   bool plugins_owned;
 
-  /* work thread object */
-  struct work_thread *work_thread;
-  
 #if P2MP
 
 #if P2MP_SERVER
@@ -178,6 +175,11 @@ struct context_1
 
   /* save user/pass for authentication */
   struct user_pass *auth_user_pass;
+#endif
+
+#ifdef USE_PTHREAD
+  struct work_thread *work_thread;
+  bool work_thread_owned;
 #endif
 };
 
@@ -411,13 +413,17 @@ struct context_2
 # define CAS_PENDING   1
 # define CAS_FAILED    2
   int context_auth;
-#endif
+#endif /* P2MP_SERVER */
 
   struct event_timeout push_request_interval;
   const char *pulled_options_string;
 
   struct event_timeout scheduled_exit;
 
+#endif /* P2MP */
+
+#ifdef USE_PTHREAD
+  struct thread_context thread_context;
 #endif
 };
 

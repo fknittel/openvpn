@@ -42,6 +42,7 @@
 #include "common.h"
 #include "misc.h"
 #include "otime.h"
+#include "buffer.h"
 #include "gremlin.h"
 
 #include "memdbg.h"
@@ -85,6 +86,29 @@ static const int down_high[] = { 10, 60, 120 };
 static const struct packet_flood_parms packet_flood_data[] =
   {{10, 100}, {10, 1000}, {100, 1000}};
 
+/*
+ * Gremlin flag parse table
+ */
+struct gremlin_parse
+{
+  const char *name;
+  int shift;
+  unsigned int mask;
+};
+
+static const struct gremlin_parse parse_list[] =
+  {
+    { "cflood",  GREMLIN_CONNECTION_FLOOD_SHIFT, GREMLIN_CONNECTION_FLOOD_MASK },
+    { "pflood",  GREMLIN_PACKET_FLOOD_SHIFT,     GREMLIN_PACKET_FLOOD_MASK },
+    { "corrupt", GREMLIN_CORRUPT_SHIFT,          GREMLIN_CORRUPT_MASK },
+    { "updown",  GREMLIN_UP_DOWN_SHIFT,          GREMLIN_UP_DOWN_MASK },
+    { "drop",    GREMLIN_DROP_SHIFT,             GREMLIN_DROP_MASK }
+  }; 
+
+static bool initialized; /* GLOBAL */
+static bool up;          /* GLOBAL */
+static time_t next;      /* GLOBAL */
+
 struct packet_flood_parms
 get_packet_flood_parms (int level)
 {
@@ -111,9 +135,33 @@ static int roll(int low, int high) {
   return ret;
 }
 
-static bool initialized; /* GLOBAL */
-static bool up;          /* GLOBAL */
-static time_t next;      /* GLOBAL */
+/*
+ * Parse a gremlin option and return mask bits
+ */
+unsigned int
+gremlin_parse_option (const char *parm, const int msglevel)
+{
+  char p1[64];
+  char p2[64];
+  struct buffer buf;
+
+  buf_set_read (&buf, parm, strlen (parm) + 1);
+  buf_parse (&buf, '/', p1, sizeof (p1));
+  buf_parse (&buf, 0, p2, sizeof (p2));
+  
+  if (strlen (p1) && strlen (p2))
+    {
+      int i;
+      for (i = 0; i < (int) SIZE (parse_list); ++i)
+	{
+	  const struct gremlin_parse *gp = &parse_list[i];
+	  if (!strcmp (p1, gp->name))
+	    return (atoi (p2) & gp->mask) << gp->shift;
+	}
+    }
+  msg (msglevel, "GREMLIN: can't parse option: '%s'", parm);
+  return 0;
+}
 
 /*
  * Return false if we should drop a packet.

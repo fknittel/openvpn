@@ -193,51 +193,58 @@ virtual_output_callback_func (void *arg, const unsigned int flags, const char *s
 {
   static int recursive_level = 0; /* GLOBAL */
 
-  if (!recursive_level) /* don't allow recursion */
+  if (openvpn_thread_primary ())
     {
-      struct gc_arena gc = gc_new ();
-      struct management *man = (struct management *) arg;
-      struct log_entry e;
-      const char *out = NULL;
-
-      ++recursive_level;
-
-      CLEAR (e);
-      update_time ();
-      e.timestamp = now;
-      e.u.msg_flags = flags;
-      e.string = str;
-
-      if (flags & M_FATAL)
-	man->persist.standalone_disabled = false;
-
-      if (flags != M_CLIENT)
-	log_history_add (man->persist.log, &e);
-
-      if (!man_password_needed (man))
+      if (!recursive_level) /* don't allow recursion */
 	{
-	  if (flags == M_CLIENT)
-	    out = log_entry_print (&e, LOG_PRINT_CRLF, &gc);
-	  else if (man->connection.log_realtime)
-	    out = log_entry_print (&e, LOG_PRINT_INT_DATE
-				   |   LOG_PRINT_MSG_FLAGS
-				   |   LOG_PRINT_LOG_PREFIX
-				   |   LOG_PRINT_CRLF, &gc);
-	  if (out)
-	    man_output_list_push (man, out);
+	  struct gc_arena gc = gc_new ();
+	  struct management *man = (struct management *) arg;
+	  struct log_entry e;
+	  const char *out = NULL;
+
+	  ++recursive_level;
+
+	  CLEAR (e);
+	  update_time ();
+	  e.timestamp = now;
+	  e.u.msg_flags = flags;
+	  e.string = str;
+
 	  if (flags & M_FATAL)
+	    man->persist.standalone_disabled = false;
+
+	  if (flags != M_CLIENT)
+	    log_history_add (man->persist.log, &e);
+
+	  if (!man_password_needed (man))
 	    {
-	      out = log_entry_print (&e, LOG_FATAL_NOTIFY|LOG_PRINT_CRLF, &gc);
+	      if (flags == M_CLIENT)
+		out = log_entry_print (&e, LOG_PRINT_CRLF, &gc);
+	      else if (man->connection.log_realtime)
+		out = log_entry_print (&e, LOG_PRINT_INT_DATE
+				       |   LOG_PRINT_MSG_FLAGS
+				       |   LOG_PRINT_LOG_PREFIX
+				       |   LOG_PRINT_CRLF, &gc);
 	      if (out)
+		man_output_list_push (man, out);
+	      if (flags & M_FATAL)
 		{
-		  man_output_list_push (man, out);
-		  man_reset_client_socket (man, false);
+		  out = log_entry_print (&e, LOG_FATAL_NOTIFY|LOG_PRINT_CRLF, &gc);
+		  if (out)
+		    {
+		      man_output_list_push (man, out);
+		      man_reset_client_socket (man, false);
+		    }
 		}
 	    }
-	}
 
-      --recursive_level;
-      gc_free (&gc);
+	  --recursive_level;
+	  gc_free (&gc);
+	}
+    }
+  else
+    {
+      // JYFIXME -- handle virtual output from work thread
     }
 }
 
@@ -1923,7 +1930,7 @@ output_list_push (struct output_list *ol, const unsigned char *str)
 	  ASSERT (!ol->head);
 	  ol->head = e;
 	}
-      e->buf = string_alloc_buf (str, NULL);
+      e->buf = string_alloc_buf (str, 0, NULL);
       ol->tail = e;
     }
 }

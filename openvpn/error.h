@@ -183,6 +183,10 @@ int get_mute_cutoff (void);
 
 const char *msg_flags_string (const unsigned int flags, struct gc_arena *gc);
 
+#ifdef ENABLE_DEBUG
+void crash (void);
+#endif
+
 /*
  * File to print messages to before syslog is opened.
  */

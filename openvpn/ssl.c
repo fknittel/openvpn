@@ -701,9 +701,10 @@ tls_deauthenticate (struct tls_multi *multi)
 }
 
 #ifdef USE_PTHREAD
-void tls_set_work_thread (struct tls_multi *multi, struct work_thread *wt)
+void tls_set_work_thread (struct tls_multi *multi, struct work_thread *wt, struct thread_context *tc)
 {
   multi->work_thread = wt;
+  multi->thread_context = tc;
 }
 #endif
 
@@ -1202,8 +1203,11 @@ bio_write (struct tls_multi* multi, BIO *bio, const uint8_t *data, int size, con
 /*
  * Read from an OpenSSL BIO in non-blocking mode.
  */
+
+#define BR_TRY_THREAD (1<<0)
+
 static int
-bio_read (struct tls_multi* multi, BIO *bio, struct buffer *buf, int maxlen, const char *desc)
+bio_read (struct tls_multi* multi, BIO *bio, struct buffer *buf, int maxlen, const unsigned int flags, const char *desc)
 {
   int i = 0;
   int ret = 0;
@@ -1225,15 +1229,11 @@ bio_read (struct tls_multi* multi, BIO *bio, struct buffer *buf, int maxlen, con
        */
 
 #ifdef USE_PTHREAD
-      if (multi->work_thread)
-	{
-	  multi->busy = true;
-	  i = work_thread_bio_read (multi->work_thread, bio, BPTR (buf), len);
-	  multi->busy = false;
-	}
-#else
-      i = BIO_read (bio, BPTR (buf), len);
+      if (multi->work_thread && (flags & BR_TRY_THREAD))
+	i = work_thread_bio_read (multi->work_thread, multi->thread_context, bio, BPTR (buf), len);
+      else
 #endif
+	i = BIO_read (bio, BPTR (buf), len);
 
       VALGRIND_MAKE_READABLE ((void *) &i, sizeof (i));
 
@@ -1311,6 +1311,7 @@ key_state_write_ciphertext (struct tls_multi *multi, struct key_state *ks, struc
   int ret;
   perf_push (PERF_BIO_WRITE_CIPHERTEXT);
   ret = bio_write (multi, ks->ct_in, BPTR(buf), BLEN(buf), "tls_write_ciphertext");
+  ks->wrote_ciphertext = true;
   bio_write_post (ret, buf);
   perf_pop ();
   return ret;
@@ -1320,9 +1321,14 @@ static int
 key_state_read_plaintext (struct tls_multi *multi, struct key_state *ks, struct buffer *buf,
 			  int maxlen)
 {
-  int ret;
+  int ret = 0;
   perf_push (PERF_BIO_READ_PLAINTEXT);
-  ret = bio_read (multi, ks->ssl_bio, buf, maxlen, "tls_read_plaintext");
+  if (ks->wrote_ciphertext)
+    {
+      ret = bio_read (multi, ks->ssl_bio, buf, maxlen, BR_TRY_THREAD, "tls_read_plaintext");
+      if (ret == 0)
+	ks->wrote_ciphertext = false;
+    }
   perf_pop ();
   return ret;
 }
@@ -1333,7 +1339,7 @@ key_state_read_ciphertext (struct tls_multi *multi, struct key_state *ks, struct
 {
   int ret;
   perf_push (PERF_BIO_READ_CIPHERTEXT);
-  ret = bio_read (multi, ks->ct_out, buf, maxlen, "tls_read_ciphertext");
+  ret = bio_read (multi, ks->ct_out, buf, maxlen, 0, "tls_read_ciphertext");
   perf_pop ();
   return ret;
 }
@@ -1537,6 +1543,11 @@ tls_session_free (struct tls_session *session, bool clear)
 
   if (session->common_name)
     free (session->common_name);
+
+#ifdef TLS_CHANNEL
+  mbuf_free (session->channel_incoming);
+  mbuf_free (session->channel_outgoing);
+#endif
 
   if (clear)
     CLEAR (*session);
@@ -2329,11 +2340,10 @@ verify_user_pass_script (struct tls_multi *multi, struct tls_session *session, c
       /* call command */
 #ifdef USE_PTHREAD
       if (multi->work_thread)
-	{
-	  multi->busy = true;
-	  retval = work_thread_system (multi->work_thread, BSTR (&cmd), session->opt->es, S_SCRIPT);
-	  multi->busy = false;
-	}
+	retval = work_thread_system (multi->work_thread,
+				     multi->thread_context,
+				     BSTR (&cmd),
+				     session->opt->es, S_SCRIPT);
       else
 #endif
 	retval = openvpn_system (BSTR (&cmd), session->opt->es, S_SCRIPT);
@@ -2382,15 +2392,12 @@ verify_user_pass_plugin (struct tls_multi *multi, struct tls_session *session, c
       /* call command */
 #ifdef USE_PTHREAD
       if (multi->work_thread)
-	{
-	  multi->busy = true;
-	  retval = work_thread_plugin_call (multi->work_thread,
-					    session->opt->plugins,
-					    OPENVPN_PLUGIN_AUTH_USER_PASS_VERIFY,
-					    NULL,
-					    session->opt->es);
-	  multi->busy = false;
-	}
+	retval = work_thread_plugin_call (multi->work_thread,
+					  multi->thread_context,
+					  session->opt->plugins,
+					  OPENVPN_PLUGIN_AUTH_USER_PASS_VERIFY,
+					  NULL,
+					  session->opt->es);
       else
 #endif
 	retval = plugin_call (session->opt->plugins, OPENVPN_PLUGIN_AUTH_USER_PASS_VERIFY, NULL, session->opt->es);
@@ -2969,7 +2976,7 @@ tls_process (struct tls_multi *multi,
 	      int status;
 
 	      ASSERT (buf_init (buf, 0));
-	      status = key_state_read_plaintext (multi, ks, buf, PLAINTEXT_BUFFER_SIZE);
+	      status = key_state_read_plaintext (multi, ks, buf, PLAINTEXT_BUFFER_SIZE); /* THREAD-TLS-VERIFY */
 	      update_time ();
 	      if (status == -1)
 		{
@@ -3025,7 +3032,7 @@ tls_process (struct tls_multi *multi,
 		}
 	      else if (session->opt->key_method == 2)
 		{
-		  if (!key_method_2_read (buf, multi, session))
+		  if (!key_method_2_read (buf, multi, session)) /* THREAD-AUTH-USER-PASS */
 		    goto error;
 		}
 	      else
@@ -3037,6 +3044,48 @@ tls_process (struct tls_multi *multi,
 	      dmsg (D_TLS_DEBUG_MED, "STATE S_GOT_KEY");
 	      ks->state = S_GOT_KEY;
 	    }
+
+#ifdef TLS_CHANNEL
+	  if (ks->state >= S_ACTIVE)
+	    {
+	      /* Read incoming plaintext to TLS_CHANNEL queue */
+	      if (ks->plaintext_read_buf.len)
+		{
+		  struct mbuf_item item;
+		  buf = &ks->plaintext_read_buf;
+		  item.buffer = mbuf_alloc_buf (buf);
+		  item.arg = MBUF_DEFINED;
+		  if (!session->channel_incoming)
+		    session->channel_incoming = mbuf_init (TLS_PAYLOAD_QUEUE_LEN);
+		  mbuf_add_item (session->channel_incoming, &item);
+		  mbuf_free_buf (item.buffer);
+		  buf->len = 0;
+
+		  state_change = true;
+		  dmsg (D_TLS_DEBUG_MED, "TLS_CHANNEL INCOMING");
+		}
+
+	      /* Write outgoing TLS_CHANNEL queue plaintext to TLS object */
+	      if (mbuf_defined (session->channel_outgoing))
+		{
+		  struct mbuf_item item;
+
+		  if (!ks->plaintext_write_buf.len && mbuf_extract_item (session->channel_outgoing, &item))
+		    {
+		      const bool ba_status = buf_assign (&ks->plaintext_write_buf, &item.buffer->buf);
+		      mbuf_free_buf (item.buffer);
+		      if (!ba_status)
+			{
+			  msg (D_TLS_ERRORS,
+			       "TLS ERROR: TLS_CHANNEL outgoing overflow");
+			  goto error;
+			}
+		      state_change = true;
+		      dmsg (D_TLS_DEBUG_MED, "TLS_CHANNEL OUTGOING");
+		    }
+		}
+	    }
+#endif
 
 	  /* Write outgoing plaintext to TLS object */
 	  buf = &ks->plaintext_write_buf;
@@ -3162,7 +3211,7 @@ tls_multi_process (struct tls_multi *multi,
   bool error = false;
 
 #ifdef USE_PTHREAD
-  if (multi->busy)
+  if (multi->work_thread && !work_thread_ready (multi->thread_context))
     return false;
 #endif
 
@@ -3919,56 +3968,34 @@ tls_post_encrypt (struct tls_multi *multi, struct buffer *buf)
     }
 }
 
+#ifdef TLS_CHANNEL
+
 /*
- * Send a payload over the TLS control channel.
+ * Send/receive a payload over the TLS control channel.
  * Called externally.
  */
 
 bool
-tls_send_payload (struct tls_multi *multi,
-		  const uint8_t *data,
-		  int size)
+tls_rec_payload (struct tls_multi *multi, struct mbuf_item *item)
 {
   struct tls_session *session;
-  struct key_state *ks;
-  bool ret = false;
-
   ASSERT (multi);
-
   session = &multi->session[TM_ACTIVE];
-  ks = &session->key[KS_PRIMARY];
-
-  if (ks->state >= S_ACTIVE)
-    {
-      if (key_state_write_plaintext_const (multi, ks, data, size) == 1)
-	ret = true;
-    }
-
-  return ret;
+  return mbuf_extract_item (session->channel_incoming, item);
 }
 
 bool
-tls_rec_payload (struct tls_multi *multi,
-		 struct buffer *buf)
+tls_send_payload (struct tls_multi *multi, const struct mbuf_item *item)
 {
   struct tls_session *session;
-  struct key_state *ks;
-  bool ret = false;
-
   ASSERT (multi);
-
   session = &multi->session[TM_ACTIVE];
-  ks = &session->key[KS_PRIMARY];
-
-  if (ks->state >= S_ACTIVE && BLEN (&ks->plaintext_read_buf))
-    {
-      if (buf_copy (buf, &ks->plaintext_read_buf))
-	ret = true;
-      ks->plaintext_read_buf.len = 0;
-    }
-
-  return ret;
+  if (!session->channel_outgoing)
+    session->channel_outgoing = mbuf_init (TLS_PAYLOAD_QUEUE_LEN);
+  return mbuf_add_item (session->channel_outgoing, item);
 }
+
+#endif
 
 /*
  * Dump a human-readable rendition of an openvpn packet

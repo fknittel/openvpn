@@ -287,3 +287,34 @@
    Memcheck:Cond
    fun:lzo1x_1_15_compress
 }
+
+{
+   test48
+   Memcheck:Leak
+   fun:calloc
+   fun:_dlerror_run
+   fun:dlsym
+   fun:open
+}
+
+{
+   test49
+   Memcheck:Value4
+   fun:DES_set_key_unchecked
+}
+
+{
+   test50
+   Memcheck:Value4
+   fun:DES_encrypt2
+}
+
+{
+   test51
+   Memcheck:Param
+   execve(envp[i])
+   fun:execve
+   fun:do_system
+   fun:system
+   fun:system
+}

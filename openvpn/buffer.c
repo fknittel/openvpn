@@ -466,9 +466,9 @@ string_alloc (const char *str, struct gc_arena *gc)
  */
 struct buffer
 #ifdef DMALLOC
-string_alloc_buf_debug (const char *str, struct gc_arena *gc, const char *file, int line)
+string_alloc_buf_debug (const char *str, const unsigned int flags, struct gc_arena *gc, const char *file, int line)
 #else
-string_alloc_buf (const char *str, struct gc_arena *gc)
+string_alloc_buf (const char *str, const unsigned int flags, struct gc_arena *gc)
 #endif
 {
   struct buffer buf;
@@ -476,12 +476,13 @@ string_alloc_buf (const char *str, struct gc_arena *gc)
   ASSERT (str);
 
 #ifdef DMALLOC
-  buf_set_read (&buf, string_alloc_debug (str, NULL, file, line), strlen (str) + 1);
+  buf_set_read (&buf, string_alloc_debug (str, gc, file, line), strlen (str) + 1);
 #else
-  buf_set_read (&buf, string_alloc (str, NULL), strlen (str) + 1);
+  buf_set_read (&buf, string_alloc (str, gc), strlen (str) + 1);
 #endif
 
-  if (buf.len > 0) /* Don't count trailing '\0' as part of length */
+  /* Don't count trailing '\0' as part of length */
+  if (!(flags & SAB_INCLUDE_NULL) && buf.len > 0)
     --buf.len;
 
   return buf;

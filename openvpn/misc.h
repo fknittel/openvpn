@@ -119,9 +119,9 @@ void warn_if_group_others_accessible(const char* filename);
 #define S_FATAL  (1<<1)
 
 /* wrapper around the system() call. */
-int openvpn_system (const char *command, const struct env_set *es, unsigned int flags);
+int openvpn_system (const char *command, const struct env_set *es, const unsigned int flags);
 #ifdef HAVE_SYSTEM
-int openvpn_system_dowork (const char *command, const struct env_set *es, unsigned int flags);
+int openvpn_system_dowork (const char *command, const struct env_set *es, const unsigned int flags);
 #endif
 
 /* interpret the status code returned by system() */

@@ -51,6 +51,7 @@
 #include "pool.h"
 #include "helper.h"
 #include "manage.h"
+#include "gremlin.h"
 
 #include "memdbg.h"
 
@@ -260,7 +261,8 @@ static const char usage_message[] =
   "--disable-occ   : Disable options consistency check between peers.\n"
 #endif
 #ifdef ENABLE_DEBUG
-  "--gremlin mask  : Special stress testing mode (for debugging only).\n"
+  "--gremlin [opt...]  : Special stress testing mode (for debugging only).\n"
+  "                  Examples: cflood/7 pflood/3 corrupt/3 updown/3 drop/3\n"
 #endif
 #ifdef USE_LZO
   "--comp-lzo      : Use fast LZO compression -- may add up to 1 byte per\n"
@@ -2729,7 +2731,22 @@ add_option (struct options *options,
     {
       ++i;
       VERIFY_PERMISSION (OPT_P_GENERAL);
-      options->gremlin = positive_atoi (p[1]);
+      if (isalpha (p[1][0]))
+	{
+	  int j;
+	  for (j = 1; j < MAX_PARMS; ++j)
+	    {
+	      const char *gparm = p[j];
+	      if (!gparm)
+		break;
+	      ++i;
+	      options->gremlin |= gremlin_parse_option (gparm, msglevel);
+	    }
+	}
+      else
+	{
+	  options->gremlin = positive_atoi (p[1]);
+	}
     }
 #endif
   else if (streq (p[0], "user") && p[1])
@@ -3036,7 +3053,6 @@ add_option (struct options *options,
     }
   else if (streq (p[0], "work-thread"))
     {
-      ++i;
       VERIFY_PERMISSION (OPT_P_GENERAL);
       options->n_threads = 2;
     }

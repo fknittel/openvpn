@@ -78,7 +78,7 @@ check_incoming_control_channel (struct context *c)
 {
 #if P2MP
   void check_incoming_control_channel_dowork (struct context *c);
-  if (tls_test_payload_len (c->c2.tls_multi) > 0)
+  if (tls_test_payload (c->c2.tls_multi))
     check_incoming_control_channel_dowork (c);
 #endif
 }
@@ -272,14 +272,14 @@ io_wait (struct context *c, const unsigned int flags)
     }
 }
 
-static inline int
+static inline bool
 is_work_thread_break (const struct context *c)
 {
 #ifdef USE_PTHREAD
-  return c->c2.event_set_status & (WORK_THREAD_READ|WORK_THREAD_WRITE);
-#else
-  return false;
+  if ((c->c2.event_set_status & (WORK_THREAD_READ|WORK_THREAD_WRITE)) && c->c1.work_thread)
+    return work_thread_break (c->c1.work_thread);
 #endif
+  return false;
 }
 
 #define CONNECTION_ESTABLISHED(c) (get_link_socket_info(c)->connection_established)

@@ -379,7 +379,7 @@ save_inetd_socket_descriptor (void)
  * Wrapper around the system() call.
  */
 int
-openvpn_system (const char *command, const struct env_set *es, unsigned int flags)
+openvpn_system (const char *command, const struct env_set *es, const unsigned int flags)
 {
 #ifdef HAVE_SYSTEM
   int ret;
@@ -404,9 +404,11 @@ openvpn_system (const char *command, const struct env_set *es, unsigned int flag
 
 #ifdef HAVE_SYSTEM
 int
-openvpn_system_dowork (const char *command, const struct env_set *es, unsigned int flags)
+openvpn_system_dowork (const char *command, const struct env_set *es, const unsigned int flags)
 {
   int ret;
+
+  mutex_lock_static (L_SYSTEM);
 
   /*
    * add env_set to environment.
@@ -414,24 +416,18 @@ openvpn_system_dowork (const char *command, const struct env_set *es, unsigned i
   if (flags & S_SCRIPT)
     env_set_add_to_environment (es);
 
-  /* debugging */
-  dmsg (D_SCRIPT, "SYSTEM[%u] '%s'", flags, command);
-  if (flags & S_SCRIPT)
-    env_set_print (D_SCRIPT, es);
-
   /*
    * execute the command
    */
   ret = system (command);
-
-  /* debugging */
-  dmsg (D_SCRIPT, "SYSTEM return=%u", ret);
 
   /*
    * remove env_set from environment
    */
   if (flags & S_SCRIPT)
     env_set_remove_from_environment (es);
+
+  mutex_unlock_static (L_SYSTEM);
 
   return ret;
 }

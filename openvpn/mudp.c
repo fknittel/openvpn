@@ -223,8 +223,11 @@ tunnel_server_udp_event_loop (void *arg)
       perf_push (PERF_EVENT_LOOP);
 
       /* set up and do the io_wait() */
-      multi_get_timeout (m, &m->top.c2.timeval);
-      io_wait (&m->top, p2mp_iow_flags (m));
+      if (!IS_SIG (&m->top))
+	{
+	  multi_get_timeout (m, &m->top.c2.timeval);
+	  io_wait (&m->top, p2mp_iow_flags (m));
+	}
       MULTI_CHECK_SIG (m);
 
       /* break from this event loop? */
@@ -234,9 +237,6 @@ tunnel_server_udp_event_loop (void *arg)
 	  perf_pop ();
 	  break;
 	}
-
-      /* check on status of coarse timers */
-      multi_process_per_second_timers (m);
 
       /* timeout? */
       if (m->top.c2.event_set_status == ES_TIMEOUT)
@@ -250,6 +250,10 @@ tunnel_server_udp_event_loop (void *arg)
 	  MULTI_CHECK_SIG (m);
 	}
       
+      /* check on status of coarse timers */
+      if (!m->pending)
+	multi_process_per_second_timers (m);
+
       perf_pop ();
     }
 

@@ -60,9 +60,6 @@ struct multi_instance {
   //MUTEX_DEFINE (mutex);
   bool defined;
   bool halt;
-#ifdef USE_PTHREAD
-  bool busy;
-#endif
   int refcount;
   time_t created;
   struct timeval wakeup;       /* absolute time */
@@ -82,7 +79,6 @@ struct multi_instance {
   bool did_iter;
   bool connection_established_flag;
   bool did_iroutes;
-  bool enable_client_disconnect_script;
 
   struct context context;
 };
@@ -113,6 +109,10 @@ struct multi_context {
   struct multi_instance *earliest_wakeup;
   struct multi_instance **mpp_touched;
 
+#ifdef USE_PTHREAD
+  struct thread_context thread_context;
+#endif
+
   struct context top;
 };
 
@@ -124,6 +124,10 @@ struct multi_context {
  */
 struct multi_context_thread_save {
   struct multi_instance *pending;
+  int thread_level_mi;
+  int thread_level_pending;
+  struct buffer c_to_tun;
+  struct buffer top_buf;
 };
 #endif
 
@@ -135,8 +139,10 @@ struct multi_route
   struct mroute_addr addr;
   struct multi_instance *instance;
 
-# define MULTI_ROUTE_CACHE   (1<<0)
-# define MULTI_ROUTE_AGEABLE (1<<1)
+  /* must not collide with SP_, MGI_ (multi.c), or S_ (misc.h) flags */
+# define MULTI_ROUTE_CACHE   (1<<8)
+# define MULTI_ROUTE_AGEABLE (1<<9)
+# define MULTI_ROUTE_MASK    (MULTI_ROUTE_CACHE|MULTI_ROUTE_AGEABLE)
   unsigned int flags;
 
   unsigned int cache_generation;
@@ -198,17 +204,16 @@ void init_management_callback_multi (struct multi_context *m);
 void uninit_management_callback_multi (struct multi_context *m);
 
 /*
- * Return true if instance is busy due to background thread functions
- * in progress.
+ * Is instance ready with respect to work thread locking?
  */
 static inline bool
-multi_instance_busy (const struct multi_instance *mi)
+multi_instance_ready (const struct multi_instance *mi, const int thread_level)
 {
 #ifdef USE_PTHREAD
-  if (mi && mi->busy)
-    return true;
+  return mi && work_thread_ready_level (&mi->context.c2.thread_context, thread_level);
+#else
+  return mi != NULL;
 #endif
-  return false;
 }
 
 /*
@@ -256,8 +261,8 @@ multi_instance_dec_refcount (struct multi_instance *mi)
 {
   if (--mi->refcount <= 0)
     {
+      ASSERT (mi->halt);
       gc_free (&mi->gc);
-      //mutex_destroy (&mi->mutex);
       free (mi);
     }
 }
@@ -273,7 +278,7 @@ static inline bool
 multi_route_defined (const struct multi_context *m,
 		     const struct multi_route *r)
 {
-  if (r->instance->halt || multi_instance_busy (r->instance))
+  if (r->instance->halt || !multi_instance_ready (r->instance, TL_LIGHT))
     return false;
   else if ((r->flags & MULTI_ROUTE_CACHE)
 	   && r->cache_generation != m->route_helper->cache_generation)
@@ -329,9 +334,9 @@ clear_prefix (void)
 #define MULTI_CACHE_ROUTE_TTL 60
 
 static inline void
-multi_reap_process (const struct multi_context *m)
+multi_reap_process (struct multi_context *m)
 {
-  void multi_reap_process_dowork (const struct multi_context *m);
+  void multi_reap_process_dowork (struct multi_context *m);
   if (m->reaper->last_call != now)
     multi_reap_process_dowork (m);
 }
@@ -423,10 +428,17 @@ multi_process_outgoing_link_dowork (struct multi_context *m, struct multi_instan
 static inline void
 multi_set_pending (struct multi_context *m, struct multi_instance *mi)
 {
-  if (multi_instance_busy (mi))
-    m->pending = NULL;
-  else
-    m->pending = mi;
+  m->pending = multi_instance_ready (mi, TL_LIGHT) ? mi : NULL;
+#if 0 && defined(USE_PTHREAD)// JYFIXME -- multi_set_pending
+  if (mi)
+    {
+      set_prefix (mi);
+      msg (M_INFO, "****** PENDING %d [%d]",
+	   m->pending != NULL,
+	   mi->context.c2.thread_context.thread_level);
+      clear_prefix ();
+    }
+#endif
 }
 
 #endif /* P2MP_SERVER */

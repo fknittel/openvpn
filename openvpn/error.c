@@ -371,6 +371,7 @@ dont_mute (unsigned int flags)
 void
 assert_failed (const char *filename, int line)
 {
+  crash (); // JYFIXME
   msg (M_FATAL, "Assertion failed at %s:%d", filename, line);
 }
 
@@ -688,6 +689,15 @@ msg_flags_string (const unsigned int flags, struct gc_arena *gc)
     buf_printf (&out, "D");
   return BSTR (&out);
 }
+
+#ifdef ENABLE_DEBUG
+void
+crash (void)
+{
+  char *null = NULL;
+  *null = 0;
+}
+#endif
 
 #ifdef WIN32
 
