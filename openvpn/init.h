@@ -59,7 +59,9 @@ bool do_persist_tuntap (const struct options *options);
 
 void pre_setup (const struct options *options);
 
-void init_instance (struct context *c, const struct env_set *env, unsigned int flags);
+void init_instance_handle_signals (struct context *c, const struct env_set *env, const unsigned int flags);
+
+void init_instance (struct context *c, const struct env_set *env, const unsigned int flags);
 
 void do_route (const struct options *options,
 	       struct route_list *route_list,
@@ -100,7 +102,9 @@ struct context_buffers *init_context_buffers (const struct frame *frame);
 
 void free_context_buffers (struct context_buffers *b);
 
-void initialization_sequence_completed (struct context *c, const bool errors);
+#define ISC_ERRORS (1<<0)
+#define ISC_SERVER (1<<1)
+void initialization_sequence_completed (struct context *c, const unsigned int flags);
 
 #ifdef ENABLE_MANAGEMENT
 

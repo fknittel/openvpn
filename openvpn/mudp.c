@@ -269,7 +269,7 @@ tunnel_server_udp (struct context *top)
   context_clear_2 (top);
 
   /* initialize top-tunnel instance */
-  init_instance (top, top->es, CC_HARD_USR1_TO_HUP);
+  init_instance_handle_signals (top, top->es, CC_HARD_USR1_TO_HUP);
   if (IS_SIG (top))
     return;
   
@@ -283,7 +283,7 @@ tunnel_server_udp (struct context *top)
   init_management_callback_multi (&multi);
 
   /* finished with initialization */
-  initialization_sequence_completed (top, false);
+  initialization_sequence_completed (top, ISC_SERVER); /* --mode server --proto udp */
 
   /* per-packet event loop */
   enable_work_thread (&multi.top, &multi, tunnel_server_udp_event_loop);

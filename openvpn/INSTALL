@@ -8,13 +8,9 @@ the Free Software Foundation; either version 2 of the License, or
 
 *************************************************************************
 
-For the latest stable version of OpenVPN, go to:
+To download OpenVPN, go to:
 
-	http://sourceforge.net/projects/openvpn/
-
-For the latest development version of OpenVPN, go to:
-
-	http://openvpn.net/beta/
+	http://openvpn.net/download.html
 
 For step-by-step installation instructions with real-world
 examples see:
@@ -228,6 +224,10 @@ TUN/TAP Driver Configuration:
   you plan to use to create the device(s) at boot.
 
 * Mac OS X:
+
+  2005.02.13: Angelo Laub has developed a GUI for OS X:
+
+  http://rechenknecht.net/OpenVPN-GUI/
 
   2004.10.26: Mattias Nissler has developed a new TUN/TAP driver for
   MAC OS X:

@@ -733,7 +733,7 @@ tunnel_server_tcp (struct context *top)
   context_clear_2 (top);
 
   /* initialize top-tunnel instance */
-  init_instance (top, top->es, CC_HARD_USR1_TO_HUP);
+  init_instance_handle_signals (top, top->es, CC_HARD_USR1_TO_HUP);
   if (IS_SIG (top))
     return;
   
@@ -747,7 +747,7 @@ tunnel_server_tcp (struct context *top)
   init_management_callback_multi (&multi);
 
   /* finished with initialization */
-  initialization_sequence_completed (top, false); /* --mode server --proto tcp-server */
+  initialization_sequence_completed (top, ISC_SERVER); /* --mode server --proto tcp-server */
 
   /* per-packet event loop */
   enable_work_thread (&multi.top, &multi, tunnel_server_tcp_event_loop);

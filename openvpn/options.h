@@ -32,6 +32,7 @@
 #define OPTIONS_H
 
 #include "basic.h"
+#include "common.h"
 #include "mtu.h"
 #include "route.h"
 #include "tun.h"
@@ -46,6 +47,12 @@
  */
 #define MAX_PARMS 16
 
+/*
+ * Max size of options line and parameter.
+ */
+#define OPTION_PARM_SIZE 256
+#define OPTION_LINE_SIZE 256
+
 extern const char title_string[];
 
 #if P2MP
@@ -53,7 +60,7 @@ extern const char title_string[];
 #if P2MP_SERVER
 /* parameters to be pushed to peer */
 
-#define MAX_PUSH_LIST_LEN 1024 /* This parm is related to PLAINTEXT_BUFFER_SIZE in ssl.h */
+#define MAX_PUSH_LIST_LEN TLS_CHANNEL_BUF_SIZE /* This parm is related to PLAINTEXT_BUFFER_SIZE in ssl.h */
 
 struct push_list {
   /* newline delimited options, like config file */

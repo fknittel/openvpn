@@ -1,5 +1,5 @@
 ; ****************************************************************************
-; * Copyright (C) 2002-2005 OpenVPN Solutions LLC                                      *
+; * Copyright (C) 2002-2005 OpenVPN Solutions LLC                            *
 ; *  This program is free software; you can redistribute it and/or modify    *
 ; *  it under the terms of the GNU General Public License as published by    *
 ; *  the Free Software Foundation; either version 2 of the License, or       *
@@ -16,8 +16,8 @@
 !define HOME "c:\src\openvpn"
 !define BIN "${HOME}\bin"
 
-!define MUI_PRODUCT "OpenVPN"
-!define MUI_VERSION "@VERSION@" # AUTO_VERSION
+!define PRODUCT_NAME "OpenVPN"
+!define VERSION "@VERSION@" # AUTO_VERSION
 
 !define TAP "tap0801"
 !define TAPDRV "${TAP}.sys"
@@ -41,7 +41,7 @@
 
   ;General
 
-  OutFile "openvpn-${MUI_VERSION}${OUTFILE_LABEL}-install.exe"
+  OutFile "openvpn-${VERSION}${OUTFILE_LABEL}-install.exe"
 
   SetCompressor bzip2
 
@@ -49,12 +49,12 @@
   ShowUninstDetails show
 
   ;Folder selection page
-  InstallDir "$PROGRAMFILES\${MUI_PRODUCT}"
+  InstallDir "$PROGRAMFILES\${PRODUCT_NAME}"
   
   ;Remember install folder
-  InstallDirRegKey HKCU "Software\${MUI_PRODUCT}" ""
+  InstallDirRegKey HKCU "Software\${PRODUCT_NAME}" ""
 
-  !define SOURCE_ZIP_DEST "openvpn-${MUI_VERSION}.zip"
+  !define SOURCE_ZIP_DEST "openvpn-${VERSION}.zip"
   !define SOURCE_ZIP_SRC "${MASTER}\${SOURCE_ZIP_DEST}"
 
 # For testing only
@@ -63,38 +63,44 @@
 ;--------------------------------
 ;Modern UI Configuration
 
-  !define MUI_NAME "${MUI_PRODUCT} ${MUI_VERSION} ${TITLE_LABEL}"
+  Name "${PRODUCT_NAME} ${TITLE_LABEL}"
 
-  !define MUI_WELCOMEPAGE
-  !define MUI_LICENSEPAGE
-  !define MUI_COMPONENTSPAGE
+  !define MUI_WELCOMEPAGE_TEXT "This wizard will guide you through the installation of OpenVPN, an Open Source VPN package by James Yonan.\r\n\r\nNote that the Windows version of OpenVPN will only run on Win 2000, XP, or higher.\r\n\r\n\r\n"
+
+  !define MUI_COMPONENTSPAGE_TEXT_TOP "Select the components to install/upgrade.  Stop any OpenVPN processes or the OpenVPN service if it is running.  All DLLs are installed locally."
+
   !define MUI_COMPONENTSPAGE_SMALLDESC
-  !define MUI_DIRECTORYPAGE
-  !define MUI_FINISHPAGE
   !define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\INSTALL-win32.txt"
   !define MUI_FINISHPAGE_NOAUTOCLOSE
   !define MUI_FINISHPAGE_SHOWREADME_NOTCHECKED
-  
   !define MUI_ABORTWARNING
+  !define MUI_ICON "${HOME}\install-win32\openvpn.ico"
+  !define MUI_UNICON "${HOME}\install-win32\openvpn.ico"
+  !define MUI_HEADERIMAGE
+  !define MUI_HEADERIMAGE_BITMAP "${HOME}\install-win32\install-whirl.bmp"
+
+  !insertmacro MUI_PAGE_WELCOME
+  !insertmacro MUI_PAGE_LICENSE "${HOME}\install-win32\license.txt"
+  !insertmacro MUI_PAGE_COMPONENTS
+  !insertmacro MUI_PAGE_DIRECTORY
+  !insertmacro MUI_PAGE_INSTFILES
+  !insertmacro MUI_PAGE_FINISH
   
-  !define MUI_UNINSTALLER
-  !define MUI_UNCONFIRMPAGE
-  
-  !define MUI_HEADERBITMAP "${HOME}\install-win32\install-whirl.bmp"
-  
+  !insertmacro MUI_UNPAGE_CONFIRM
+  !insertmacro MUI_UNPAGE_INSTFILES  
+  !insertmacro MUI_UNPAGE_FINISH
+
 ;--------------------------------
 ;Languages
  
-  !define MUI_TEXT_WELCOME_INFO_TEXT "This wizard will guide you through the installation of OpenVPN, an Open Source VPN package by James Yonan.\r\n\r\nNote that the Windows version of OpenVPN will only run on Win 2000, XP, or higher.\r\n\r\n\r\n"
-
-  !define MUI_INNERTEXT_COMPONENTS_TOP "Select the components to install/upgrade.  Stop any OpenVPN processes or the OpenVPN service if it is running.  All DLLs are installed locally."
-
   !insertmacro MUI_LANGUAGE "English"
   
 ;--------------------------------
 ;Language Strings
 
   LangString DESC_SecOpenVPNUserSpace ${LANG_ENGLISH} "Install OpenVPN user-space components, including openvpn.exe."
+
+  LangString DESC_SecOpenVPNEasyRSA ${LANG_ENGLISH} "Install OpenVPN RSA scripts for X509 certificate management."
 
   LangString DESC_SecOpenSSLDLLs ${LANG_ENGLISH} "Install OpenSSL DLLs locally (may be omitted if DLLs are already installed globally)."
 
@@ -111,11 +117,6 @@
   LangString DESC_SecAddShortcuts ${LANG_ENGLISH} "Add OpenVPN shortcuts to the current user's Start Menu."
 
   LangString DESC_SecFileAssociation ${LANG_ENGLISH} "Register OpenVPN config file association (*.${SERV_CONFIG_EXT})"
-
-;--------------------------------
-;Data
-  
-  LicenseData "${HOME}\install-win32\license.txt"
 
 ;--------------------------------
 ;Reserve Files
@@ -198,6 +199,28 @@ Section "OpenVPN User-Space Components" SecOpenVPNUserSpace
 
 SectionEnd
 
+Section "OpenVPN RSA Certificate Management Scripts" SecOpenVPNEasyRSA
+
+  SetOverwrite on
+  SetOutPath "$INSTDIR\easy-rsa"
+
+  File "${HOME}\install-win32\openssl.cnf.sample"
+  File "${MASTER}\easy-rsa\Windows\vars.bat.sample"
+
+  File "${MASTER}\easy-rsa\Windows\init-config.bat"
+
+  File "${MASTER}\easy-rsa\Windows\README.txt"
+  File "${MASTER}\easy-rsa\Windows\build-ca.bat"
+  File "${MASTER}\easy-rsa\Windows\build-dh.bat"
+  File "${MASTER}\easy-rsa\Windows\build-key-server.bat"
+  File "${MASTER}\easy-rsa\Windows\build-key.bat"
+  File "${MASTER}\easy-rsa\Windows\clean-all.bat"
+  File "${MASTER}\easy-rsa\Windows\index.txt.start"
+  File "${MASTER}\easy-rsa\Windows\revoke-full.bat"
+  File "${MASTER}\easy-rsa\Windows\serial.start"
+
+SectionEnd
+
 Section "OpenVPN Service" SecService
 
   SetOverwrite on
@@ -206,7 +229,6 @@ Section "OpenVPN Service" SecService
   File "${HOME}\service-win32\openvpnserv.exe"
 
   SetOutPath "$INSTDIR\config"
-  File "${HOME}\install-win32\sample.${SERV_CONFIG_EXT}.txt"
 
   FileOpen $R0 "$INSTDIR\config\README.txt" w
   FileWrite $R0 "This directory should contain OpenVPN configuration files$\r$\n"
@@ -215,6 +237,11 @@ Section "OpenVPN Service" SecService
   FileWrite $R0 "When OpenVPN is started as a service, a separate OpenVPN$\r$\n"
   FileWrite $R0 "process will be instantiated for each configuration file.$\r$\n"
   FileClose $R0
+
+  SetOutPath "$INSTDIR\sample-config"
+  File "${HOME}\install-win32\sample.${SERV_CONFIG_EXT}"
+  File "${HOME}\install-win32\client.${SERV_CONFIG_EXT}"
+  File "${HOME}\install-win32\server.${SERV_CONFIG_EXT}"
 
   CreateDirectory "$INSTDIR\log"
   FileOpen $R0 "$INSTDIR\log\README.txt" w
@@ -285,8 +312,9 @@ Section "Add Shortcuts to Start Menu" SecAddShortcuts
 
   SetOverwrite on
   CreateDirectory "$SMPROGRAMS\OpenVPN"
-  CreateShortCut "$SMPROGRAMS\OpenVPN\OpenVPN Win32 README.lnk" "$INSTDIR\INSTALL-win32.txt" ""
+  WriteINIStr "$SMPROGRAMS\OpenVPN\OpenVPN Windows Notes.url" "InternetShortcut" "URL" "http://openvpn.net/INSTALL-win32.html"
   WriteINIStr "$SMPROGRAMS\OpenVPN\OpenVPN Manual Page.url" "InternetShortcut" "URL" "http://openvpn.net/man.html"
+  WriteINIStr "$SMPROGRAMS\OpenVPN\OpenVPN HOWTO.url" "InternetShortcut" "URL" "http://openvpn.net/howto.html"
   WriteINIStr "$SMPROGRAMS\OpenVPN\OpenVPN Web Site.url" "InternetShortcut" "URL" "http://openvpn.net/"
   CreateShortCut "$SMPROGRAMS\OpenVPN\Uninstall OpenVPN.lnk" "$INSTDIR\Uninstall.exe"
 
@@ -431,8 +459,12 @@ Section -post
       CreateShortCut "$SMPROGRAMS\OpenVPN\OpenVPN configuration file directory.lnk" "$INSTDIR\config" ""
 
  log_shortcut:
-    IfFileExists "$INSTDIR\log" "" genkey_shortcut
+    IfFileExists "$INSTDIR\log" "" samp_shortcut
       CreateShortCut "$SMPROGRAMS\OpenVPN\OpenVPN log file directory.lnk" "$INSTDIR\log" ""
+
+ samp_shortcut:
+    IfFileExists "$INSTDIR\sample-config" "" genkey_shortcut
+      CreateShortCut "$SMPROGRAMS\OpenVPN\OpenVPN Sample Configuration Files.lnk" "$INSTDIR\sample-config" ""
 
  genkey_shortcut:
     IfFileExists "$INSTDIR\bin\openvpn.exe" "" noshortcuts
@@ -444,23 +476,22 @@ Section -post
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
   ; Show up in Add/Remove programs
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenVPN" "DisplayName" "OpenVPN ${MUI_VERSION}"
-  WriteRegExpandStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenVPN" "UninstallString" "$INSTDIR\Uninstall.exe"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "DisplayName" "${PRODUCT_NAME} ${VERSION}"
+  WriteRegExpandStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "UninstallString" "$INSTDIR\Uninstall.exe"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "DisplayIcon" "$INSTDIR\openvpn.ico"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "DisplayVersion" "${VERSION}"
 
   ; Advise a reboot
   ;Messagebox MB_OK "IMPORTANT: Rebooting the system is advised in order to finalize TAP-Win32 driver installation/upgrade (this is an informational message only, pressing OK will not reboot)."
 
 SectionEnd
 
-;Display the Finish header
-;Insert this macro after the sections if you are not using a finish page
-!insertmacro MUI_SECTIONS_FINISHHEADER
-
 ;--------------------------------
 ;Descriptions
 
-!insertmacro MUI_FUNCTIONS_DESCRIPTION_BEGIN
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SecOpenVPNUserSpace} $(DESC_SecOpenVPNUserSpace)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecOpenVPNEasyRSA} $(DESC_SecOpenVPNEasyRSA)
   !insertmacro MUI_DESCRIPTION_TEXT ${SecTAP} $(DESC_SecTAP)
   !insertmacro MUI_DESCRIPTION_TEXT ${SecOpenSSLUtilities} $(DESC_SecOpenSSLUtilities)
   !insertmacro MUI_DESCRIPTION_TEXT ${SecOpenSSLDLLs} $(DESC_SecOpenSSLDLLs)
@@ -469,7 +500,7 @@ SectionEnd
   !insertmacro MUI_DESCRIPTION_TEXT ${SecAddShortcuts} $(DESC_SecAddShortcuts)
   !insertmacro MUI_DESCRIPTION_TEXT ${SecService} $(DESC_SecService)
   !insertmacro MUI_DESCRIPTION_TEXT ${SecFileAssociation} $(DESC_SecFileAssociation)
-!insertmacro MUI_FUNCTIONS_DESCRIPTION_END
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ;--------------------------------
 ;Uninstaller Section
@@ -529,19 +560,34 @@ Section "Uninstall"
   Delete "$INSTDIR\license.txt"
   Delete "$INSTDIR\Uninstall.exe"
 
+  Delete "$INSTDIR\easy-rsa\openssl.cnf.sample"
+  Delete "$INSTDIR\easy-rsa\vars.bat.sample"
+  Delete "$INSTDIR\easy-rsa\init-config.bat"
+  Delete "$INSTDIR\easy-rsa\README.txt"
+  Delete "$INSTDIR\easy-rsa\build-ca.bat"
+  Delete "$INSTDIR\easy-rsa\build-dh.bat"
+  Delete "$INSTDIR\easy-rsa\build-key-server.bat"
+  Delete "$INSTDIR\easy-rsa\build-key.bat"
+  Delete "$INSTDIR\easy-rsa\clean-all.bat"
+  Delete "$INSTDIR\easy-rsa\index.txt.start"
+  Delete "$INSTDIR\easy-rsa\revoke-key.bat"
+  Delete "$INSTDIR\easy-rsa\revoke-full.bat"
+  Delete "$INSTDIR\easy-rsa\serial.start"
+
+  Delete "$INSTDIR\sample-config\*.ovpn"
+
   RMDir "$INSTDIR\bin"
   RMDir "$INSTDIR\driver"
+  RMDir "$INSTDIR\easy-rsa"
+  RMDir "$INSTDIR\sample-config"
   RMDir "$INSTDIR"
 
   !insertmacro DelRegKeyIfUnchanged HKCR ".${SERV_CONFIG_EXT}" "OpenVPNFile"
   DeleteRegKey HKCR "OpenVPNFile"
   DeleteRegKey HKLM SOFTWARE\OpenVPN
-  DeleteRegKey HKCU "Software\${MUI_PRODUCT}"
+  DeleteRegKey HKCU "Software\${PRODUCT_NAME}"
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenVPN"
 
   ;Messagebox MB_OK "IMPORTANT: If you intend on reinstalling OpenVPN after this uninstall, and you are running Win2K, you are strongly urged to reboot before reinstalling (this is an informational message only, pressing OK will not reboot)."
-
-  ;Display the Finish header
-  !insertmacro MUI_UNFINISHHEADER
 
 SectionEnd

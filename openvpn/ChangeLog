@@ -3,14 +3,124 @@ Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
 
 $Id$
 
+2005.02.17 -- Version 2.0_rc14aMT
+
+* Merged with 2.0_rc14a.
+	
 2005.01.18 -- Version 2.0-rc8MT
 
-* Merged with 2.0-rc8.
+* Merged with 2.0-rc8.  Future merges should use
+  2.0-rc8a as the delta starting point.
 	
 2004.12.30 -- Version 2.0-rc6aMT
 
 * Merged with 2.0-rc6a.
 
+2005.02.xx -- Version 2.0-rc15
+
+* Added warning when --keepalive is not used in a server
+  configuration.
+
+2005.02.16 -- Version 2.0-rc14
+
+* Fixed small memory leak that occurs when --crl-verify
+  is used.
+* Upgraded Windows installer and .nsi script to NSIS 2.05
+  (Mathias Sundman).
+* Changed #include backslash usage in cryptoapi.c to use
+  forward slashes instead (Gisle Vanem).
+* Created easy-rsa/revoke-full to handle revocations in
+  a single step: (a) revoke crt, (b) regenerate CRL, and
+  (c) verify that revocation succeeded.
+* Renamed easy-rsa/Windows/revoke-key to revoke-full so
+  that both *nix and Windows scripts are equivalent.
+	
+2005.02.11 -- Version 2.0-rc13
+
+* Improve human-readability of local/remote options
+  diff, when inconsistencies are present.
+* For Windows easy-rsa, distribute vars.bat.sample and
+  openssl.cnf.sample, then copy them to their normal
+  filenames (without the .sample) when init-config.bat
+  is run.  This is to prevent OpenVPN upgrades from
+  wiping out vars.bat and openssl.cnf edits.
+* Modified service wrapper (Windows) to use a
+  case-insensitive search when scanning for .ovpn files
+  in \Program Files\OpenVPN\config.  Prior versions
+  required an all-lower-case .ovpn file extension.
+* Miscellaneous service wrapper code cleanup.
+* If --user/--group is used on Windows, treat it
+  as a no-op with a warning (this makes it easier to
+  distribute the same client config file to Windows
+  and *nix users).
+* Warn if --ifconfig-pool-persist is used with
+  --duplicate-cn.
+
+2005.02.05 -- Version 2.0-rc12
+
+* Removed some debugging code inadvertently included
+  in rc11 which would print the --auth-user-pass
+  username/password provided by clients in the server
+  logfile.
+* Client code for cycling through --remote list will
+  retry the last address which successfully authenticated
+  before moving on through the list.
+* Windows installer will now install sample configuration
+  files in \Program Files\OpenVPN\sample-configs as well
+  as generate a start menu shortcut to this directory.
+* Minor type change in buffer.[ch] to work around char-type
+  ambiguity bug.  Caused management interface lock-ups on
+  ARM when building with armv4b-hardhat-linux-gcc 2.95.3.
+
+2005.02.03 -- Version 2.0-rc11
+
+* Windows installer will now install easy-rsa directory
+  in \Program Files\OpenVPN
+* Allow syslog facility to be controlled at compile time,
+  e.g. -DLOG_OPENVPN=LOG_LOCAL6 (P Kern).
+* Changed certain shell scripts in distribution to use
+  #!/bin/sh rather than #!/bin/bash for better portability.
+* If --ifconfig-pool-persist seconds parameter is 0, treat
+  persist file as an allocation of fixed IP addresses
+  (previous versions took IP-to-common-name associations
+  from this list as hints, not mandatory static allocations).
+* Fixed bug on *nix where if --auth-user-pass and --log
+  were used together, the username prompt would be sent to
+  the log file rather than /dev/tty.
+* Spurious text in openvpn.8 detected by doclifter
+  (Eric S. Raymond).
+* Call closelog later on daemon kill so that process
+  exit message is written to syslog.
+
+2005.01.27 -- Version 2.0-rc10
+
+* When ./configure is run with plugins enabled (the default),
+  check whether or not dlopen exists in libc before testing
+  for libdl.  This is to fix an issue on FreeBSD and possibly
+  other OSes which bundle libdl functions in libc.
+* On Windows, filter initial WSAEINVAL warning which occurs
+  on the initial read attempt of an unbound socket.
+* The easy-rsa scripts build-key, build-key-pass, and
+  build-key-server will now chmod the .key file
+  to 0600.  This is in addition to the fact the generated
+  keys directory has always been similarly protected
+  (Pete Harlan).
+
+2005.01.23 -- Version 2.0-rc9
+
+* Fixed error "ROUTE: route addition failed using
+  CreateIpForwardEntry ..." on Windows when --redirect-gateway
+  is used over a RRAS internet link.
+* When using --route-method exe on Windows, include the
+  gateway parameter on route delete commands (Mathias Sundman).
+* Try not to do a hard reset (i.e. SIGHUP) when two
+  SIGUSR1 signals are received in close succession.
+* If the push list tries to grow beyond its buffer capacity,
+  the resulting error will be non-fatal.
+* To increase the push list capacity (must be done on both
+  client and server), increase TLS_CHANNEL_BUF_SIZE in
+  common.h (default=1024).
+	
 2005.01.15 -- Version 2.0-rc8
 
 * Fixed bug introduced in rc7 where options error

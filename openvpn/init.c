@@ -566,26 +566,32 @@ do_init_route_list (const struct options *options,
  * Called after all initialization has been completed.
  */
 void
-initialization_sequence_completed (struct context *c, const bool errors)
+initialization_sequence_completed (struct context *c, const unsigned int flags)
 {
   static const char message[] = "Initialization Sequence Completed";
 
   /* If we delayed UID/GID downgrade or chroot, do it now */
   do_uid_gid_chroot (c, true);
 
-  if (errors)
+  /* Test if errors */
+  if (flags & ISC_ERRORS)
     msg (M_INFO, "%s With Errors", message);
   else
     msg (M_INFO, "%s", message);
 
+  /* Flag remote_list that we initialized */
+  if ((flags & (ISC_ERRORS|ISC_SERVER)) == 0 && c->c1.remote_list && c->c1.remote_list->len > 1)
+    c->c1.remote_list->no_advance = true;
+
 #ifdef ENABLE_MANAGEMENT
+  /* Tell management interface that we initialized */
   if (management)
     {
       in_addr_t tun_local = 0;
       const char *detail = "SUCCESS";
       if (c->c1.tuntap)
 	tun_local = c->c1.tuntap->local;
-      if (errors)
+      if (flags & ISC_ERRORS)
 	detail = "ERROR";
       management_set_state (management,
 			    OPENVPN_STATE_CONNECTED,
@@ -918,12 +924,12 @@ do_up (struct context *c, bool pulled_options, unsigned int option_types_found)
 	    }
 	  else
 	    {
-	      initialization_sequence_completed (c, false); /* client/p2p --route-delay undefined */
+	      initialization_sequence_completed (c, 0); /* client/p2p --route-delay undefined */
 	    }
 	}
       else if (c->options.mode == MODE_POINT_TO_POINT)
 	{
-	  initialization_sequence_completed (c, false); /* client/p2p restart with --persist-tun */
+	  initialization_sequence_completed (c, 0); /* client/p2p restart with --persist-tun */
 	}
 	
       c->c2.do_up_ran = true;
@@ -1509,6 +1515,10 @@ do_option_warnings (struct context *c)
     {
       if (o->duplicate_cn && o->client_config_dir)
 	msg (M_WARN, "WARNING: using --duplicate-cn and --client-config-dir together is probably not what you want");
+      if (o->duplicate_cn && o->ifconfig_pool_persist_filename)
+	msg (M_WARN, "WARNING: --ifconfig-pool-persist will not work with --duplicate-cn");
+      if (!o->keepalive_ping || !o->keepalive_timeout)
+	msg (M_WARN, "WARNING: --keepalive option is missing from server config");
     }
 #endif
 #endif
@@ -1883,13 +1893,6 @@ do_close_fragment (struct context *c)
     }
 }
 #endif
-
-static void
-do_close_syslog (struct context *c)
-{
-  if (!(c->sig->signal_received == SIGUSR1))
-    close_syslog ();
-}
 
 /*
  * Open and close our event objects.
@@ -2267,10 +2270,22 @@ uninit_management_callback (void)
 }
 
 /*
+ * Initialize a tunnel instance, handle pre and post-init
+ * signal settings.
+ */
+void
+init_instance_handle_signals (struct context *c, const struct env_set *env, const unsigned int flags)
+{
+  pre_init_signal_catch ();
+  init_instance (c, env, flags);
+  post_init_signal_catch ();
+}
+
+/*
  * Initialize a tunnel instance.
  */
 void
-init_instance (struct context *c, const struct env_set *env, unsigned int flags)
+init_instance (struct context *c, const struct env_set *env, const unsigned int flags)
 {
   const struct options *options = &c->options;
   const bool child = (c->mode == CM_CHILD_TCP || c->mode == CM_CHILD_UDP);
@@ -2278,6 +2293,11 @@ init_instance (struct context *c, const struct env_set *env, unsigned int flags)
 
   /* init garbage collection level */
   gc_init (&c->c2.gc);
+
+  /* signals caught here will abort */
+  c->sig->signal_received = 0;
+  c->sig->signal_text = NULL;
+  c->sig->hard = false;
 
   /* link_socket_mode allows CM_CHILD_TCP
      instances to inherit acceptable fds
@@ -2289,15 +2309,6 @@ init_instance (struct context *c, const struct env_set *env, unsigned int flags)
       else if (c->mode == CM_CHILD_TCP)
 	link_socket_mode = LS_MODE_TCP_ACCEPT_FROM;
     }
-
-  /* signals caught here will abort */
-  c->sig->signal_received = 0;
-  c->sig->signal_text = NULL;
-  c->sig->hard = false;
-
-  /* before full initialization, received signals will trigger exit */
-  if (c->first_time)
-    pre_init_signal_catch ();
 
   /* should we disable paging? */
   if (c->first_time && options->mlock)
@@ -2429,10 +2440,6 @@ init_instance (struct context *c, const struct env_set *env, unsigned int flags)
   /* do one-time inits, and possibily become a daemon here */
   do_init_first_time (c);
 
-  /* catch signals */
-  if (c->first_time)
-    post_init_signal_catch ();
-
   /* start work thread here */
   if (c->mode == CM_P2P || c->mode == CM_TOP || child)
     do_init_pthread (c, child);
@@ -2519,10 +2526,6 @@ close_instance (struct context *c)
 
 	/* close --ifconfig-pool-persist obj */
 	do_close_ifconfig_pool_persist (c);
-
-	/* close syslog */
-	if (c->mode == CM_P2P || c->mode == CM_TOP)
-	  do_close_syslog (c);
 
 	/* garbage collect */
 	gc_free (&c->c2.gc);
