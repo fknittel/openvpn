@@ -60,13 +60,13 @@
  * of the main event loop when we are blocking on
  * completion of a work thread task.
  */
-#define SP_SECONDARY      (1<<17) /* we are loading secondary struct multi_instance for client-to-client target */
-#define SP_PENDING        (1<<18) /* m->pending must be preserved */
-#define SP_C_TO_TUN       (1<<19) /* mi->context.c2.to_tun must be preserved */
-#define SP_TOP_BUF        (1<<20) /* m->top.context.c2.buf must be preserved */
-#define SP_SCHEDULE       (1<<21) /* remove/restore instance from scheduler, also implies SP_SCHEDULE_RESET */
-#define SP_SCHEDULE_RESET (1<<22) /* immediate rescheduling of instance on restore */
-#define SP_REAP           (1<<23) /* called by virtual address reaper */
+#define SP_SECONDARY        (1<<17) /* we are loading secondary struct multi_instance for client-to-client target */
+#define SP_PENDING          (1<<18) /* m->pending must be preserved */
+#define SP_PENDING_PASSTHRU (1<<19) /* pass current pending pointer to inner recursive event loop */
+#define SP_TOP_BUF          (1<<20) /* m->top.context.c2.buf must be preserved */
+#define SP_SCHEDULE         (1<<21) /* remove/restore instance from scheduler, also implies SP_SCHEDULE_RESET */
+#define SP_SCHEDULE_RESET   (1<<22) /* immediate rescheduling of instance on restore */
+#define SP_REAP             (1<<23) /* called by virtual address reaper */
 
 /*
  * Flags for multi_get_instance_by_virtual_addr
@@ -77,9 +77,10 @@
 #ifdef USE_PTHREAD
 
 static void
-multi_thread_clear_recursive_state (struct multi_context *m)
+multi_thread_clear_recursive_state (struct multi_context *m, const unsigned int flags)
 {
-  m->pending = NULL;
+  if (!(flags & SP_PENDING_PASSTHRU))
+    m->pending = NULL;
   m->earliest_wakeup = NULL;
   m->mpp_touched = NULL;
 }
@@ -112,6 +113,13 @@ multi_thread_decrease_thread_level (struct thread_context *tc,
   tc->thread_level = thread_level_save;
 }
 
+static void
+save_mpp_touched (struct multi_context_thread_save *s, struct multi_context *m, struct multi_instance *mi)
+{
+  if (!s->mpp_touched && m->mpp_touched && *m->mpp_touched == mi)
+    s->mpp_touched = m->mpp_touched;
+}
+
 static void *
 multi_thread_save (struct thread_context *tc)
 {
@@ -130,10 +138,6 @@ multi_thread_save (struct thread_context *tc)
       /* increment thread level before going recursive, and save previous thread level */
       multi_thread_increase_thread_level (tc, new_thread_level, &s->thread_level_mi);
 
-      /* save mi->context.c2.to_tun */
-      if (tc->flags & SP_C_TO_TUN)
-	s->c_to_tun = clone_buf (&mi->context.c2.to_tun);
-
       /* remove client instance from scheduler list */
       if (tc->flags & SP_SCHEDULE)
 	schedule_remove_entry (m->schedule, (struct schedule_entry *) mi);
@@ -143,7 +147,10 @@ multi_thread_save (struct thread_context *tc)
   if ((tc->flags & SP_PENDING) && m->pending)
     {
       if (mi != m->pending)
-	multi_thread_increase_thread_level (&m->pending->context.c2.thread_context, new_thread_level, &s->thread_level_pending);
+	{
+	  multi_thread_increase_thread_level (&m->pending->context.c2.thread_context, new_thread_level, &s->thread_level_pending);
+	  save_mpp_touched (s, m, m->pending);
+	}
 	
       s->pending = m->pending;
     }
@@ -152,7 +159,9 @@ multi_thread_save (struct thread_context *tc)
   if (tc->flags & SP_TOP_BUF)
     s->top_buf = clone_buf (&m->top.c2.buf);
 
-  multi_thread_clear_recursive_state (m);
+  save_mpp_touched (s, m, m->pending);
+
+  multi_thread_clear_recursive_state (m, tc->flags);
 
   return (void *) s;
 }
@@ -168,21 +177,12 @@ multi_thread_restore (struct thread_context *tc,
   ASSERT (m);
   ASSERT (s);
 
-  multi_thread_clear_recursive_state (m);
+  multi_thread_clear_recursive_state (m, 0);
 
   if (mi)
     {
       /* restore previous thread level */
       multi_thread_decrease_thread_level (tc, s->thread_level_mi);
-
-      /* restore mi->context.c2.to_tun */
-      if (tc->flags & SP_C_TO_TUN)
-	{
-	  ASSERT (buf_defined (&s->c_to_tun));
-	  mi->context.c2.to_tun = m->top.c2.buffers->read_link_buf;
-	  buf_assign (&mi->context.c2.to_tun, &s->c_to_tun);
-	  free_buf (&s->c_to_tun);
-	}
 
       /* schedule immediate wakeup */
       if (tc->flags & (SP_SCHEDULE|SP_SCHEDULE_RESET))
@@ -191,7 +191,7 @@ multi_thread_restore (struct thread_context *tc,
 	  reset_coarse_timers (&mi->context);
 	  ASSERT (!gettimeofday (&tv, NULL));
 	  schedule_add_entry (m->schedule, (struct schedule_entry *) mi, &tv, 0);
-	}
+	}  
     }
 
   /* restore m->pending */
@@ -211,6 +211,11 @@ multi_thread_restore (struct thread_context *tc,
       buf_assign (&m->top.c2.buf, &s->top_buf);
       free_buf (&s->top_buf);
     }
+
+  if (s->mpp_touched)
+    m->mpp_touched = s->mpp_touched;
+
+  m->event_loop_reentered = true;
 
   free (s);
 }
@@ -1820,12 +1825,15 @@ multi_process_post (struct multi_context *m, struct multi_instance *mi, const un
 {
   bool ret = true;
 
-  if (!IS_SIG (&mi->context) && ((flags & MPP_PRE_SELECT) || ((flags & MPP_CONDITIONAL_PRE_SELECT) && !ANY_OUT (&mi->context))))
+  if (flags & MPP_CALL_STREAM_BUF_READ_SETUP)
+    stream_buf_read_setup (mi->context.c2.link_socket);
+
+  if (!IS_SIG (&mi->context) && ((flags & MPP_FORCE_PRE_SELECT) || !ANY_OUT (&mi->context)))
     {
 #ifdef USE_PTHREAD
       /* set flags for SSL tasks which might occur in pre_select */
       if (m->top.c1.work_thread)
-	mi->context.c2.thread_context.flags = (WTF_LIGHT|SP_SCHEDULE_RESET);
+	mi->context.c2.thread_context.flags = WTF_LIGHT;
 #endif
 
       /* figure timeouts and fetch possible outgoing
@@ -1946,7 +1954,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 	      /* make sure that source address is associated with this client */
 	      else if (multi_get_instance_by_virtual_addr (m, /* THREAD-LEARN */
 							   &src,
-							   MGI_CIDR_ROUTING|SP_C_TO_TUN|SP_PENDING|SP_SCHEDULE)
+							   MGI_CIDR_ROUTING|SP_PENDING|SP_SCHEDULE)
 		       != m->pending)
 		{
 		  msg (D_MULTI_DROPPED, "MULTI: bad source address from client [%s], packet dropped",
@@ -1972,7 +1980,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 		      ASSERT (!(mroute_flags & MROUTE_EXTRACT_BCAST));
 		      mi = multi_get_instance_by_virtual_addr (m, /* THREAD-LEARN */
 							       &dest,
-							       MGI_CIDR_ROUTING|SP_C_TO_TUN|SP_PENDING|SP_SECONDARY|SP_SCHEDULE);
+							       MGI_CIDR_ROUTING|SP_PENDING|SP_SECONDARY|SP_SCHEDULE);
 		      if (IS_SIG (c)) /* learn address script might generate a signal */
 			goto drop;
 
@@ -1999,7 +2007,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 		  if (multi_learn_addr (m, /* THREAD-LEARN */
 					m->pending,
 					&src,
-					SP_C_TO_TUN|SP_PENDING|SP_SCHEDULE) == m->pending)
+					SP_PENDING|SP_SCHEDULE) == m->pending)
 		    {
 		      /* learn address script might generate a signal */
 		      if (IS_SIG (c))
@@ -2016,7 +2024,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 			    {
 			      mi = multi_get_instance_by_virtual_addr (m, /* THREAD-LEARN */
 								       &dest,
-								       SP_C_TO_TUN|SP_PENDING|SP_SECONDARY|SP_SCHEDULE);
+								       SP_PENDING|SP_SECONDARY|SP_SCHEDULE);
 			      if (IS_SIG (c)) /* learn address script might generate a signal */
 				goto drop;
 
@@ -2191,14 +2199,13 @@ multi_process_timeout (struct multi_context *m, const unsigned int mpp_flags)
   printf ("%s -> TIMEOUT\n", id(m->earliest_wakeup));
 #endif
 
-  /* instance marked for wakeup? */
-  if (multi_instance_ready (m->earliest_wakeup, TL_LIGHT))
-    {
-      set_prefix (m->earliest_wakeup);
-      ret = multi_process_post (m, m->earliest_wakeup, mpp_flags);
-      m->earliest_wakeup = NULL;
-      clear_prefix ();
-    }
+  ASSERT (multi_instance_ready (m->earliest_wakeup, TL_LIGHT));
+
+  set_prefix (m->earliest_wakeup);
+  ret = multi_process_post (m, m->earliest_wakeup, (mpp_flags | MPP_FORCE_PRE_SELECT));
+  m->earliest_wakeup = NULL;
+  clear_prefix ();
+
   return ret;
 }
 

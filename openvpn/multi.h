@@ -110,6 +110,7 @@ struct multi_context {
   struct multi_instance **mpp_touched;
 
 #ifdef USE_PTHREAD
+  bool event_loop_reentered;
   struct thread_context thread_context;
 #endif
 
@@ -124,9 +125,9 @@ struct multi_context {
  */
 struct multi_context_thread_save {
   struct multi_instance *pending;
+  struct multi_instance **mpp_touched;
   int thread_level_mi;
   int thread_level_pending;
-  struct buffer c_to_tun;
   struct buffer top_buf;
 };
 #endif
@@ -175,10 +176,13 @@ void multi_close_instance (struct multi_context *m, struct multi_instance *mi, b
 
 bool multi_process_timeout (struct multi_context *m, const unsigned int mpp_flags);
 
-#define MPP_PRE_SELECT             (1<<0)
-#define MPP_CONDITIONAL_PRE_SELECT (1<<1)
-#define MPP_CLOSE_ON_SIGNAL        (1<<2)
-#define MPP_RECORD_TOUCH           (1<<3)
+#define MPP_PRE_SELECT                 (1<<0)
+#define MPP_CONDITIONAL_PRE_SELECT     (1<<1)
+#define MPP_CLOSE_ON_SIGNAL            (1<<2)
+#define MPP_RECORD_TOUCH               (1<<3)
+#define MPP_CALL_STREAM_BUF_READ_SETUP (1<<4)
+#define MPP_FORCE_PRE_SELECT           (1<<5)
+
 bool multi_process_post (struct multi_context *m, struct multi_instance *mi, const unsigned int flags);
 
 bool multi_process_incoming_link (struct multi_context *m, struct multi_instance *instance, const unsigned int mpp_flags);
@@ -210,9 +214,33 @@ static inline bool
 multi_instance_ready (const struct multi_instance *mi, const int thread_level)
 {
 #ifdef USE_PTHREAD
-  return mi && work_thread_ready_level (&mi->context.c2.thread_context, thread_level);
+  return mi && (!mi->context.c1.work_thread || work_thread_ready_level (&mi->context.c2.thread_context, thread_level));
 #else
   return mi != NULL;
+#endif
+}
+
+static struct multi_instance *
+multi_instance_ref (struct multi_instance *mi, const int thread_level)
+{
+  return multi_instance_ready (mi, thread_level) ? mi : NULL;
+}
+
+static inline void
+multi_event_loop_reentered_reset (struct multi_context *m)
+{
+#ifdef USE_PTHREAD
+  m->event_loop_reentered = false;
+#endif
+}
+
+static inline bool
+multi_event_loop_reentered (struct multi_context *m)
+{
+#ifdef USE_PTHREAD
+  return m->event_loop_reentered;
+#else
+  return false;
 #endif
 }
 
@@ -243,7 +271,7 @@ multi_process_outgoing_link_pre (struct multi_context *m)
     mi = m->pending;
   else if (mbuf_defined (m->mbuf))
     mi = multi_get_queue (m->mbuf);
-  return mi;
+  return multi_instance_ref (mi, TL_LIGHT);
 }
 
 /*
@@ -428,7 +456,8 @@ multi_process_outgoing_link_dowork (struct multi_context *m, struct multi_instan
 static inline void
 multi_set_pending (struct multi_context *m, struct multi_instance *mi)
 {
-  m->pending = multi_instance_ready (mi, TL_LIGHT) ? mi : NULL;
+  m->pending = multi_instance_ref (mi, TL_LIGHT);
+
 #if 0 && defined(USE_PTHREAD)// JYFIXME -- multi_set_pending
   if (mi)
     {

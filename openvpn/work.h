@@ -191,6 +191,7 @@ int work_thread_plugin_call (struct work_thread *wt,
 static inline bool
 work_thread_ready_level (const struct thread_context *tc, const int thread_level)
 {
+  msg (M_INFO, "************* WTRL %d %d", tc->thread_level, thread_level); // JYFIXME
   return tc->thread_level <= thread_level;
 }
 

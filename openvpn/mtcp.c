@@ -414,11 +414,7 @@ multi_tcp_dispatch (struct multi_context *m, struct multi_instance *mi, const in
       read_incoming_link (&mi->context);
       clear_prefix ();
       if (!IS_SIG (&mi->context))
-	{
-	  multi_process_incoming_link (m, mi, mpp_flags); /* THREAD */
-	  if (!IS_SIG (&mi->context))
-	    stream_buf_read_setup (mi->context.c2.link_socket);
-	}
+	multi_process_incoming_link (m, mi, mpp_flags | MPP_CALL_STREAM_BUF_READ_SETUP); /* THREAD */
       break;
     case TA_TIMEOUT:
       multi_process_timeout (m, mpp_flags); /* THREAD */
@@ -588,7 +584,9 @@ multi_tcp_process_io (struct multi_context *m)
   struct multi_tcp *mtcp = m->mtcp;
   int i;
 
-  for (i = 0; i < mtcp->n_esr; ++i)
+  multi_event_loop_reentered_reset (m);
+
+  for (i = 0; i < mtcp->n_esr && !multi_event_loop_reentered (m); ++i)
     {
       struct event_set_return *e = &mtcp->esr[i];
 
@@ -596,7 +594,7 @@ multi_tcp_process_io (struct multi_context *m)
       if (e->arg >= (void *)MTCP_N)
 	{
 	  struct multi_instance *mi = (struct multi_instance *) e->arg;
-	  if (mi)
+	  if (multi_instance_ready (mi, TL_LIGHT))
 	    {
 	      if (e->rwflags & EVENT_WRITE)
 		multi_tcp_action (m, mi, TA_SOCKET_WRITE_READY, false);
@@ -649,11 +647,12 @@ multi_tcp_process_io (struct multi_context *m)
   /*
    * Process queued mbuf packets destined for TCP socket
    */
-  {
+  if (!multi_event_loop_reentered (m)) {
     struct multi_instance *mi;
-    while (!IS_SIG (&m->top) && (mi = mbuf_peek (m->mbuf)) != NULL)
+    while (!IS_SIG (&m->top) && (mi = (struct multi_instance *) mbuf_peek (m->mbuf)) != NULL)
       {
-	multi_tcp_action (m, mi, TA_SOCKET_WRITE, true);
+	if (multi_instance_ready (mi, TL_LIGHT))
+	  multi_tcp_action (m, mi, TA_SOCKET_WRITE, true);
       }
   }
 
@@ -675,6 +674,14 @@ tunnel_server_tcp_event_loop (void *arg)
   while (true)
     {
       perf_push (PERF_EVENT_LOOP);
+
+#if 1 // JYFIXME -- pending handling at top of event loop
+      if (m->pending)
+	{
+	  msg (M_INFO, "****** kill pending");
+	  m->pending = NULL;
+	}
+#endif
 
       /* wait on tun/socket list */
       status = -1;

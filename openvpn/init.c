@@ -2037,7 +2037,7 @@ init_thread_context (struct context *c)
 #endif
 
 static void
-do_init_pthread (struct context *c)
+do_init_pthread (struct context *c, const bool force_buffer_alloc)
 {
 #ifdef USE_PTHREAD
   if (!c->c1.work_thread && c->options.n_threads >= 2)
@@ -2045,8 +2045,13 @@ do_init_pthread (struct context *c)
       c->c1.work_thread = work_thread_init (c->options.n_threads, c->options.nice_work);
       c->c1.work_thread_owned = true;
     }
+
   if (c->c1.work_thread && c->c2.tls_multi)
     tls_set_work_thread (c->c2.tls_multi, c->c1.work_thread, &c->c2.thread_context);
+
+  if (force_buffer_alloc && !c->c2.buffers)
+    do_init_buffers (c);
+
   init_thread_context (c);
 #endif
 }
@@ -2430,7 +2435,7 @@ init_instance (struct context *c, const struct env_set *env, unsigned int flags)
 
   /* start work thread here */
   if (c->mode == CM_P2P || c->mode == CM_TOP || child)
-    do_init_pthread (c);
+    do_init_pthread (c, child);
 
   /*
    * Actually do UID/GID downgrade, and chroot, if requested.
@@ -2588,12 +2593,13 @@ inherit_context_child (struct context *dest,
   /* inherit tun/tap interface object */
   dest->c1.tuntap = src->c1.tuntap;
 
+  /* inherit buffers from parent if child's buffers are undefined */
+  if (!dest->c2.buffers)
+    dest->c2.buffers = src->c2.buffers;
+
   /* UDP inherits some extra things which TCP does not */
   if (dest->mode == CM_CHILD_UDP)
     {
-      /* inherit buffers */
-      dest->c2.buffers = src->c2.buffers;
-
       /* inherit parent link_socket and tuntap */
       dest->c2.link_socket = src->c2.link_socket;
 
