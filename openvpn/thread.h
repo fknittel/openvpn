@@ -35,7 +35,7 @@
 #define L_UNUSED       0
 #define L_CTIME        1
 #define L_INET_NTOA    2
-#define L_MSG          3
+#define L_MSG          3  /* PTHREAD_MUTEX_RECURSIVE */
 #define L_STRERR       4
 #define L_PUTENV       5
 #define L_PRNG         6
@@ -212,7 +212,7 @@ openvpn_thread_create (void *(*start_routine) (void *), void* arg)
 }
 
 static inline void
-work_thread_join (openvpn_thread_t id)
+openvpn_thread_join (openvpn_thread_t id)
 {
 }
 

@@ -39,6 +39,7 @@
 #include "otime.h"
 #include "pool.h"
 #include "gremlin.h"
+#include "work.h"
 
 #include "memdbg.h"
 
@@ -1879,6 +1880,51 @@ do_inherit_env (struct context *c, const struct env_set *src)
 }
 
 /*
+ * Initialize/Uninitialize work thread
+ */
+
+static void
+do_init_pthread (struct context *c)
+{
+#ifdef USE_PTHREAD
+  if (!c->c1.work_thread && c->options.n_threads >= 2)
+    c->c1.work_thread = work_thread_init (c->options.n_threads, c->options.nice_work);
+  if (c->c1.work_thread && c->c2.tls_multi)
+    tls_set_work_thread (c->c2.tls_multi, c->c1.work_thread);
+#endif
+}
+
+static void
+do_close_pthread (struct context *c)
+{
+#ifdef USE_PTHREAD
+  if (c->sig->signal_received != SIGUSR1 && c->c1.work_thread)
+    {
+      work_thread_close (c->c1.work_thread);
+      c->c1.work_thread = NULL;
+    }
+#endif
+}
+
+void
+enable_work_thread (struct context *c, void *arg, work_thread_event_loop_t event_loop)
+{
+#ifdef USE_PTHREAD
+  if (c->c1.work_thread)
+    work_thread_enable (c->c1.work_thread, arg, event_loop);
+#endif
+}
+
+void
+disable_work_thread (struct context *c)
+{
+#ifdef USE_PTHREAD
+  if (c->c1.work_thread)
+    work_thread_disable (c->c1.work_thread);
+#endif
+}
+
+/*
  * Fast I/O setup.  Fast I/O is an optimization which only works
  * if all of the following are true:
  *
@@ -2199,6 +2245,10 @@ init_instance (struct context *c, const struct env_set *env, unsigned int flags)
   if (c->first_time)
     post_init_signal_catch ();
 
+  /* start work thread here */
+  if (c->mode == CM_P2P || c->mode == CM_TOP)
+    do_init_pthread (c);
+
   /*
    * Actually do UID/GID downgrade, and chroot, if requested.
    * May be delayed by --client, --pull, or --up-delay.
@@ -2257,6 +2307,9 @@ close_instance (struct context *c)
 
 	/* close TUN/TAP device */
 	do_close_tun (c, false);
+
+	/* close work thread */
+	do_close_pthread (c);
 
 	/* call plugin close functions and unload */
 	do_close_plugins (c);

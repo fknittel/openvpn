@@ -53,6 +53,7 @@
 #include "perf.h"
 #include "status.h"
 #include "gremlin.h"
+#include "work.h"
 
 #ifdef WIN32
 #include "cryptoapi.h"
@@ -685,6 +686,13 @@ tls_deauthenticate (struct tls_multi *multi)
     }
 }
 
+#ifdef USE_PTHREAD
+void tls_set_work_thread (struct tls_multi *multi, struct work_thread *wt)
+{
+  multi->work_thread = wt;
+}
+#endif
+
 /*
  * Print debugging information on SSL/TLS session negotiation.
  */
@@ -1198,9 +1206,20 @@ bio_read (struct tls_multi* multi, BIO *bio, struct buffer *buf, int maxlen, con
 
       /*
        * BIO_read brackets most of the serious RSA
-       * key negotiation number crunching.
+       * key negotiation number crunching, so it's
+       * a good idea to offload it to a work thread.
        */
+
+#ifdef USE_PTHREAD
+      if (multi->work_thread)
+	{
+	  multi->busy = true;
+	  i = work_thread_bio_read (multi->work_thread, bio, BPTR (buf), len);
+	  multi->busy = false;
+	}
+#else
       i = BIO_read (bio, BPTR (buf), len);
+#endif
 
       VALGRIND_MAKE_READABLE ((void *) &i, sizeof (i));
 
@@ -2244,7 +2263,7 @@ read_string (struct buffer *buf, char *str, const unsigned int capacity)
  */
 
 static bool
-verify_user_pass_script (struct tls_session *session, const struct user_pass *up)
+verify_user_pass_script (struct tls_multi *multi, struct tls_session *session, const struct user_pass *up)
 {
   struct gc_arena gc = gc_new ();
   struct buffer cmd = alloc_buf_gc (256, &gc);
@@ -2289,7 +2308,16 @@ verify_user_pass_script (struct tls_session *session, const struct user_pass *up
       buf_printf (&cmd, "%s %s", session->opt->auth_user_pass_verify_script, tmp_file);
       
       /* call command */
-      retval = openvpn_system (BSTR (&cmd), session->opt->es, S_SCRIPT);
+#ifdef USE_PTHREAD
+      if (multi->work_thread)
+	{
+	  multi->busy = true;
+	  retval = work_thread_system (multi->work_thread, BSTR (&cmd), session->opt->es, S_SCRIPT);
+	  multi->busy = false;
+	}
+      else
+#endif
+	retval = openvpn_system (BSTR (&cmd), session->opt->es, S_SCRIPT);
 
       /* test return status of command */
       if (system_ok (retval))
@@ -2314,7 +2342,7 @@ verify_user_pass_script (struct tls_session *session, const struct user_pass *up
 }
 
 static bool
-verify_user_pass_plugin (struct tls_session *session, const struct user_pass *up)
+verify_user_pass_plugin (struct tls_multi *multi, struct tls_session *session, const struct user_pass *up)
 {
   int retval;
   bool ret = false;
@@ -2333,7 +2361,20 @@ verify_user_pass_plugin (struct tls_session *session, const struct user_pass *up
       setenv_untrusted (session);
 
       /* call command */
-      retval = plugin_call (session->opt->plugins, OPENVPN_PLUGIN_AUTH_USER_PASS_VERIFY, NULL, session->opt->es);
+#ifdef USE_PTHREAD
+      if (multi->work_thread)
+	{
+	  multi->busy = true;
+	  retval = work_thread_plugin_call (multi->work_thread,
+					    session->opt->plugins,
+					    OPENVPN_PLUGIN_AUTH_USER_PASS_VERIFY,
+					    NULL,
+					    session->opt->es);
+	  multi->busy = false;
+	}
+      else
+#endif
+	retval = plugin_call (session->opt->plugins, OPENVPN_PLUGIN_AUTH_USER_PASS_VERIFY, NULL, session->opt->es);
 
       if (!retval)
 	ret = true;
@@ -2573,9 +2614,9 @@ key_method_2_read (struct buffer *buf, struct tls_multi *multi, struct tls_sessi
 
       /* call plugin(s) and/or script */
       if (plugin_defined (session->opt->plugins, OPENVPN_PLUGIN_AUTH_USER_PASS_VERIFY))
-	s1 = verify_user_pass_plugin (session, up);
+	s1 = verify_user_pass_plugin (multi, session, up);
       if (session->opt->auth_user_pass_verify_script)
-	s2 = verify_user_pass_script (session, up);
+	s2 = verify_user_pass_script (multi, session, up);
       
       /* auth succeeded? */
       if (s1 && s2)
@@ -3072,10 +3113,17 @@ tls_multi_process (struct tls_multi *multi,
 		   struct link_socket_info *to_link_socket_info,
 		   interval_t *wakeup)
 {
-  struct gc_arena gc = gc_new ();
+  struct gc_arena gc;
   int i;
   bool active = false;
   bool error = false;
+
+#ifdef USE_PTHREAD
+  if (multi->busy)
+    return false;
+#endif
+
+  gc = gc_new ();
 
   perf_push (PERF_TLS_MULTI_PROCESS);
 

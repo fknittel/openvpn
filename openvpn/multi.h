@@ -57,9 +57,12 @@ struct multi_reap
 struct multi_instance {
   struct schedule_entry se;    /* this must be the first element of the structure */
   struct gc_arena gc;
-  MUTEX_DEFINE (mutex);
+  //MUTEX_DEFINE (mutex);
   bool defined;
   bool halt;
+#ifdef USE_PTHREAD
+  bool busy;
+#endif
   int refcount;
   time_t created;
   struct timeval wakeup;       /* absolute time */
@@ -78,41 +81,16 @@ struct multi_instance {
   bool did_real_hash;
   bool did_iter;
   bool connection_established_flag;
+  bool did_iroutes;
+  bool enable_client_disconnect_script;
 
   struct context context;
 };
-
-#ifdef USE_PTHREAD
-
-struct multi_context_thread_shared
-{
-  struct sparse_mutex read;
-  struct sparse_mutex write_link;
-  struct sparse_mutex write_tun;
-};
-
-struct multi_context_thread_local
-{
-  bool read_owned;
-  bool write_link_owned;
-  bool write_tun_owned;
-  struct multi_instance *held;
-};
-
-#endif
 
 /*
  * One multi_context object per server daemon thread.
  */
 struct multi_context {
-# define MC_UNDEF                      0
-# define MC_SINGLE_THREADED            (1<<0)
-# define MC_MULTI_THREADED_MASTER      (1<<1)
-# define MC_MULTI_THREADED_WORKER      (1<<2)
-# define MC_MULTI_THREADED_SCHEDULER   (1<<3)
-# define MC_WORK_THREAD                (MC_MULTI_THREADED_WORKER|MC_MULTI_THREADED_SCHEDULER)
-  int thread_mode;
-
   struct hash *hash;   /* client instances indexed by real address */
   struct hash *vhash;  /* client instances indexed by virtual address */
   struct hash *iter;   /* like real address hash but optimized for iteration */
@@ -129,19 +107,25 @@ struct multi_context {
   int tcp_queue_limit;
   int status_file_version;
 
-#ifdef USE_PTHREAD
-  struct multi_context_thread_shared *thread_shared;
-  struct multi_context_thread_local thread_local;
-#endif
+  time_t per_second_trigger;
 
   struct multi_instance *pending;
   struct multi_instance *earliest_wakeup;
   struct multi_instance **mpp_touched;
-  struct context_buffers *context_buffers;
-  time_t per_second_trigger;
 
   struct context top;
 };
+
+#ifdef USE_PTHREAD
+/*
+ * Used to save state in multi_context when we
+ * go recursive in the event-loop after forwarding a work
+ * thread command.
+ */
+struct multi_context_thread_save {
+  struct multi_instance *pending;
+};
+#endif
 
 /*
  * Host route
@@ -174,7 +158,7 @@ void multi_bcast (struct multi_context *m,
  * Called by mtcp.c, mudp.c, or other (to be written) protocol drivers
  */
 
-void multi_init (struct multi_context *m, struct context *t, bool tcp_mode, int thread_mode);
+void multi_init (struct multi_context *m, struct context *t, bool tcp_mode);
 void multi_uninit (struct multi_context *m);
 
 void multi_top_init (struct multi_context *m, const struct context *top, const bool alloc_buffers);
@@ -210,6 +194,20 @@ void multi_close_instance_on_signal (struct multi_context *m, struct multi_insta
 
 void init_management_callback_multi (struct multi_context *m);
 void uninit_management_callback_multi (struct multi_context *m);
+
+/*
+ * Return true if instance is busy due to background thread functions
+ * in progress.
+ */
+static inline bool
+multi_instance_busy (const struct multi_instance *mi)
+{
+#ifdef USE_PTHREAD
+  if (mi && mi->busy)
+    return true;
+#endif
+  return false;
+}
 
 /*
  * Return true if our output queue is not full
@@ -257,7 +255,7 @@ multi_instance_dec_refcount (struct multi_instance *mi)
   if (--mi->refcount <= 0)
     {
       gc_free (&mi->gc);
-      mutex_destroy (&mi->mutex);
+      //mutex_destroy (&mi->mutex);
       free (mi);
     }
 }
@@ -273,7 +271,7 @@ static inline bool
 multi_route_defined (const struct multi_context *m,
 		     const struct multi_route *r)
 {
-  if (r->instance->halt)
+  if (r->instance->halt || multi_instance_busy (r->instance))
     return false;
   else if ((r->flags & MULTI_ROUTE_CACHE)
 	   && r->cache_generation != m->route_helper->cache_generation)
@@ -412,44 +410,22 @@ multi_process_outgoing_link_dowork (struct multi_context *m, struct multi_instan
   return ret;
 }
 
-#ifndef USE_PTHREAD
-
-#endif
-
 /*
  * Check for signals.
  */
 #define MULTI_CHECK_SIG(m) EVENT_LOOP_CHECK_SIGNAL (&(m)->top, multi_process_signal, (m))
 
 /*
- * Multithreading support
+ * Set currently pending instance
  */
-#ifdef USE_PTHREAD
-
-void inherit_multi_context (struct multi_context *dest, const struct multi_context *src, const unsigned int thread_mode);
-
-void multi_acquire_io_lock (struct multi_context *m, const unsigned int iow_flags);
-void multi_release_io_lock (struct multi_context *m);
-
-void thread_shared_init (struct multi_context_thread_shared *ts);
-void thread_shared_uninit (struct multi_context_thread_shared *ts);
-
-void multi_set_pending (struct multi_context *m, struct multi_instance *mi);
-
-#else
-
 static inline void
 multi_set_pending (struct multi_context *m, struct multi_instance *mi)
 {
-  m->pending = mi;
+  if (multi_instance_busy (mi))
+    m->pending = NULL;
+  else
+    m->pending = mi;
 }
-
-static inline void
-multi_release_io_lock (struct multi_context *m)
-{
-}
-
-#endif /* USE_PTHREAD */
 
 #endif /* P2MP */
 #endif /* MULTI_H */

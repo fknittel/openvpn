@@ -59,7 +59,7 @@ struct mbuf_item
 
 struct mbuf_set
 {
-  MUTEX_DEFINE (mutex);
+  //MUTEX_DEFINE (mutex);
   unsigned int head;
   unsigned int len;
   unsigned int capacity;

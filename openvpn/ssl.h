@@ -204,6 +204,12 @@
 #define KEY_METHOD_MASK 0x0F
 
 /*
+ * Forward declaration of work_thread, used to offload high-latency
+ * functions to a background thread;
+ */
+struct work_thread;
+
+/*
  * Measure success rate of TLS handshakes, for debugging only
  */
 /* #define MEASURE_TLS_HANDSHAKE_STATS */
@@ -453,6 +459,12 @@ struct tls_multi
    */
   char *locked_cn;
 
+#ifdef USE_PTHREAD
+  /* multithread object for offloading high-latency functions */
+  bool busy;
+  struct work_thread *work_thread;
+#endif
+
   /*
    * Our session objects.
    */
@@ -540,6 +552,10 @@ void tls_lock_common_name (struct tls_multi *multi);
 
 bool tls_authenticated (struct tls_multi *multi);
 void tls_deauthenticate (struct tls_multi *multi);
+
+#ifdef USE_PTHREAD
+void tls_set_work_thread (struct tls_multi *multi, struct work_thread *wt);
+#endif
 
 /*
  * inline functions

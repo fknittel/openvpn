@@ -371,9 +371,9 @@ typedef int socket_descriptor_t;
 #endif
 
 /*
- * Pthread support is currently experimental (and quite unfinished).
+ * Pthread support is currently experimental
  */
-#if 1 // JYFIXME -- if defined, disable pthread
+#if 0 // JYFIXME -- if defined, disable pthread
 #undef USE_PTHREAD
 #endif
 

@@ -172,7 +172,6 @@ multi_process_io_udp (struct multi_context *m)
   else if (status & SOCKET_READ)
     {
       read_incoming_link (&m->top);
-      multi_release_io_lock (m);
       if (!IS_SIG (&m->top))
 	multi_process_incoming_link (m, NULL, mpp_flags);
     }
@@ -180,7 +179,6 @@ multi_process_io_udp (struct multi_context *m)
   else if (status & TUN_READ)
     {
       read_incoming_tun (&m->top);
-      multi_release_io_lock (m);
       if (!IS_SIG (&m->top))
 	multi_process_incoming_tun (m, mpp_flags);
     }
@@ -213,8 +211,53 @@ p2mp_iow_flags (const struct multi_context *m)
  * Top level event loop for single-threaded operation.
  * UDP mode.
  */
-static void
-tunnel_server_udp_single_threaded (struct context *top)
+
+static int
+tunnel_server_udp_event_loop (void *arg)
+{
+  struct multi_context *m = (struct multi_context *) arg;
+  int ret = WT_EVENT_LOOP_NORMAL;
+
+  while (true)
+    {
+      perf_push (PERF_EVENT_LOOP);
+
+      /* set up and do the io_wait() */
+      multi_get_timeout (m, &m->top.c2.timeval);
+      io_wait (&m->top, p2mp_iow_flags (m));
+      MULTI_CHECK_SIG (m);
+
+      /* break from this event loop? */
+      if (is_work_thread_break (&m->top))
+	{
+	  ret = WT_EVENT_LOOP_BREAK;
+	  perf_pop ();
+	  break;
+	}
+
+      /* check on status of coarse timers */
+      multi_process_per_second_timers (m);
+
+      /* timeout? */
+      if (m->top.c2.event_set_status == ES_TIMEOUT)
+	{
+	  multi_process_timeout (m, MPP_PRE_SELECT|MPP_CLOSE_ON_SIGNAL);
+	}
+      else
+	{
+	  /* process I/O */
+	  multi_process_io_udp (m);
+	  MULTI_CHECK_SIG (m);
+	}
+      
+      perf_pop ();
+    }
+
+  return ret;
+}
+
+void
+tunnel_server_udp (struct context *top)
 {
   struct multi_context multi;
 
@@ -227,7 +270,7 @@ tunnel_server_udp_single_threaded (struct context *top)
     return;
   
   /* initialize global multi_context object */
-  multi_init (&multi, top, false, MC_SINGLE_THREADED);
+  multi_init (&multi, top, false);
 
   /* initialize our cloned top object */
   multi_top_init (&multi, top, true);
@@ -239,32 +282,9 @@ tunnel_server_udp_single_threaded (struct context *top)
   initialization_sequence_completed (top, false);
 
   /* per-packet event loop */
-  while (true)
-    {
-      perf_push (PERF_EVENT_LOOP);
-
-      /* set up and do the io_wait() */
-      multi_get_timeout (&multi, &multi.top.c2.timeval);
-      io_wait (&multi.top, p2mp_iow_flags (&multi));
-      MULTI_CHECK_SIG (&multi);
-
-      /* check on status of coarse timers */
-      multi_process_per_second_timers (&multi);
-
-      /* timeout? */
-      if (multi.top.c2.event_set_status == ES_TIMEOUT)
-	{
-	  multi_process_timeout (&multi, MPP_PRE_SELECT|MPP_CLOSE_ON_SIGNAL);
-	}
-      else
-	{
-	  /* process I/O */
-	  multi_process_io_udp (&multi);
-	  MULTI_CHECK_SIG (&multi);
-	}
-      
-      perf_pop ();
-    }
+  enable_work_thread (&multi.top, &multi, tunnel_server_udp_event_loop);
+  tunnel_server_udp_event_loop (&multi);
+  disable_work_thread (&multi.top);
 
   /* shut down management interface */
   uninit_management_callback_multi (&multi);
@@ -276,184 +296,6 @@ tunnel_server_udp_single_threaded (struct context *top)
   multi_uninit (&multi);
   multi_top_free (&multi);
   close_instance (top);
-}
-
-#ifdef USE_PTHREAD
-
-struct thread_info
-{
-  volatile bool halt;
-  unsigned int thread_mode;
-  const struct multi_context *multi;
-};
-
-static void
-multi_thread_udp_event_loop_scheduler (const struct thread_info *mt, struct multi_context *m)
-{
-}
-
-static void
-multi_thread_udp_event_loop_worker (const struct thread_info *mt, struct multi_context *m)
-{
-  /* per-packet event loop */
-  while (true)
-    {
-      unsigned int iow_flags;
-
-      if (!m->pending)
-	multi_release_io_lock (m);
-
-      if (mt->halt)
-	break;
-
-      m->top.c2.timeval.tv_sec = 5;
-      m->top.c2.timeval.tv_usec = 0;
-
-      iow_flags = p2mp_iow_flags (m);
-
-      multi_acquire_io_lock (m, iow_flags);
-      if (mt->halt)
-	break;
-
-      io_wait (&m->top, iow_flags);
-      if (mt->halt)
-	  break;
-
-      /* process I/O */
-      if (!IS_SIG (&m->top) && m->top.c2.event_set_status != ES_TIMEOUT)
-	{
-	  multi_process_io_udp (m);
-	}
-    }
-  multi_release_io_lock (m);
-}
-
-static void *
-multi_thread_udp_func (void *arg)
-{
-  const struct thread_info *mt = (struct thread_info *) arg;
-  struct multi_context multi;
-
-  /*
-   * Clone the top-level multi_context object
-   */
-  inherit_multi_context (&multi, mt->multi, mt->thread_mode);
-
-  if (mt->thread_mode & MC_MULTI_THREADED_WORKER)
-    {
-      multi_thread_udp_event_loop_worker (mt, &multi);
-    }
-  else if (mt->thread_mode & MC_MULTI_THREADED_SCHEDULER)
-    {
-      multi_thread_udp_event_loop_scheduler (mt, &multi);
-    }
-  else
-    {
-      ASSERT (0);
-    }
-
-  multi_uninit (&multi);
-
-  msg (D_THREAD_DEBUG, "Thread exiting");
-
-  return NULL;
-}
-
-/*
- * Top level event loop for multi-threaded operation.
- * UDP mode.
- */
-static void
-tunnel_server_udp_multi_threaded (struct context *top)
-{
-  struct multi_context multi;
-  struct thread_info thread;
-  openvpn_thread_t thread_ids[MAX_THREADS];
-  struct multi_context_thread_shared thread_shared;
-  int i;
-
-  ASSERT (top->options.n_threads >= 2 && top->options.n_threads < MAX_THREADS);
-
-  CLEAR (thread);
-
-  top->mode = CM_TOP;
-  context_clear_2 (top);
-
-  /* initialize top-tunnel instance */
-  init_instance (top, top->es, CC_HARD_USR1_TO_HUP);
-  if (IS_SIG (top))
-    return;
-  
-  /* initialize global multi_context object */
-  multi_init (&multi, top, false, MC_MULTI_THREADED_MASTER);
-
-  /* this object is shared across all threads */
-  thread_shared_init (&thread_shared);
-  multi.thread_shared = &thread_shared;
-
-  /* initialize our cloned top object */
-  multi_top_init (&multi, top, false);
-
-  /* initialize management interface */
-  init_management_callback_multi (&multi);
-
-  /* finished with initialization */
-  initialization_sequence_completed (top, false);
-
-  /* initialize pthread subsystem */
-  openvpn_thread_init ();
-
-  /* init info object to pass to each thread */
-  thread.multi = &multi;
-  thread.halt = false;
-
-  /* initialize threads */
-  for (i = 0; i < top->options.n_threads; ++i)
-    {
-      thread.thread_mode = (i ? MC_MULTI_THREADED_WORKER : MC_MULTI_THREADED_SCHEDULER);
-      thread_ids[i] = openvpn_thread_create (multi_thread_udp_func, (void*)&thread);
-    }
-
-  /* let threads do all the work -- we will sleep until signal */
-  sleep_until_signal ();
-
-  msg (M_INFO, "THREADS: Shutting down");
-
-  /* signal received, tell threads to shut down */
-  thread.halt = true;
-
-  /* wait for threads to shut down */
-  for (i = 0; i < top->options.n_threads; ++i)
-    openvpn_thread_join (thread_ids[i]);
-
-  thread_shared_uninit (&thread_shared);
-  openvpn_thread_cleanup ();
-
-  /* shut down management interface */
-  uninit_management_callback_multi (&multi);
-
-  /* save ifconfig-pool */
-  multi_ifconfig_pool_persist (&multi, true);
-
-  /* tear down tunnel instance (unless --persist-tun) */
-  multi_uninit (&multi);
-  multi_top_free (&multi);
-  close_instance (top);
-}
-
-#endif
-
-void
-tunnel_server_udp (struct context *top)
-{
-#ifdef USE_PTHREAD
-  if (top->options.n_threads == 1)
-    tunnel_server_udp_single_threaded (top);
-  else
-    tunnel_server_udp_multi_threaded (top);
-#else
-  tunnel_server_udp_single_threaded (top);
-#endif
 }
 
 #endif

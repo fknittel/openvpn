@@ -114,4 +114,7 @@ void management_show_net_callback (void *arg, const int msglevel);
 void init_management_callback_p2p (struct context *c);
 void uninit_management_callback (void);
 
+void enable_work_thread (struct context *c, void *arg, work_thread_event_loop_t event_loop);
+void disable_work_thread (struct context *c);
+
 #endif

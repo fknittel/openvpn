@@ -107,7 +107,8 @@ HEADERS = \
 	syshead.h \
         thread.h \
 	tun.h \
-	win32.h
+	win32.h \
+	work.h
 
 OBJS =  base64.obj \
 	buffer.obj \
@@ -158,7 +159,8 @@ OBJS =  base64.obj \
 	status.obj \
 	thread.obj \
 	tun.obj \
-	win32.obj
+	win32.obj \
+	work.obj
 
 dynamic : $(OBJS)
 	$(LINK32) @<<

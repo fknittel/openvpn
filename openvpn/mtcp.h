@@ -49,6 +49,9 @@ struct multi_tcp
 #ifdef ENABLE_MANAGEMENT
   unsigned int management_persist_flags;
 #endif
+#ifdef USE_PTHREAD
+  unsigned int work_thread_persist_flags;
+#endif
 };
 
 struct multi_instance;

@@ -120,6 +120,9 @@ void warn_if_group_others_accessible(const char* filename);
 
 /* wrapper around the system() call. */
 int openvpn_system (const char *command, const struct env_set *es, unsigned int flags);
+#ifdef HAVE_SYSTEM
+int openvpn_system_dowork (const char *command, const struct env_set *es, unsigned int flags);
+#endif
 
 /* interpret the status code returned by system() */
 bool system_ok(int);
@@ -128,7 +131,8 @@ const char *system_error_message (int, struct gc_arena *gc);
 
 /* run system() with error check, return true if success,
    false if error, exit if error and fatal==true */
-bool system_check (const char *command, const struct env_set *es, unsigned int flags, const char *error_message);
+bool system_check (const char *command, const struct env_set *es, const unsigned int flags, const char *error_message);
+bool system_check_error (const int stat, const unsigned int flags, const char *error_message);
 
 #ifdef HAVE_STRERROR
 /* a thread-safe version of strerror */

@@ -119,7 +119,8 @@ HEADERS = \
 	syshead.h \
         thread.h \
 	tun.h \
-	win32.h
+	win32.h \
+        work.h
 
 OBJS =  base64.o \
 	buffer.o \
@@ -170,7 +171,8 @@ OBJS =  base64.o \
 	status.o \
 	thread.o \
 	tun.o \
-	win32.o
+	win32.o \
+	work.o
 
 dynamic : MY_CC = ${CC}
 dynamic : MY_INCLUDE_DIRS = ${INCLUDE_DIRS}

@@ -46,6 +46,7 @@
 #include "pool.h"
 #include "plugin.h"
 #include "manage.h"
+#include "work.h"
 
 /*
  * Our global key schedules, packaged thusly
@@ -155,6 +156,9 @@ struct context_1
   /* shared object plugins */
   struct plugin_list *plugins;
   bool plugins_owned;
+
+  /* work thread object */
+  struct work_thread *work_thread;
   
 #if P2MP
   /* if client mode, option strings we pulled from server */
@@ -184,15 +188,19 @@ struct context_2
   bool event_set_owned;
 
   /* event flags returned by io_wait */
-# define SOCKET_READ       (1<<0)
-# define SOCKET_WRITE      (1<<1)
-# define TUN_READ          (1<<2)
-# define TUN_WRITE         (1<<3)
-# define ES_ERROR          (1<<4)
-# define ES_TIMEOUT        (1<<5)
+# define SOCKET_READ        (1<<0)
+# define SOCKET_WRITE       (1<<1)
+# define TUN_READ           (1<<2)
+# define TUN_WRITE          (1<<3)
+# define ES_ERROR           (1<<4)
+# define ES_TIMEOUT         (1<<5)
 # ifdef ENABLE_MANAGEMENT
-#  define MANAGEMENT_READ  (1<<6)
-#  define MANAGEMENT_WRITE (1<<7)
+#  define MANAGEMENT_READ   (1<<6)
+#  define MANAGEMENT_WRITE  (1<<7)
+# endif
+# ifdef USE_PTHREAD
+#  define WORK_THREAD_READ  (1<<8)
+#  define WORK_THREAD_WRITE (1<<9)
 # endif
 
   unsigned int event_set_status;

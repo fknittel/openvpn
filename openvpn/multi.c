@@ -57,9 +57,111 @@ id (struct multi_instance *mi)
 }
 #endif
 
+#ifdef USE_PTHREAD
+
 static void
-learn_address_script (const struct multi_context *m,
-		      const struct multi_instance *mi,
+multi_thread_clear_recursive_state (struct multi_context *m)
+{
+  m->pending = NULL;
+  m->earliest_wakeup = NULL;
+  m->mpp_touched = NULL;
+}
+
+static void
+multi_thread_save (struct multi_context *m,
+		   struct multi_instance *mi,
+		   struct multi_context_thread_save *s)
+{
+  if (mi)
+    {
+      CLEAR (*s);
+      mi->busy = true;
+      if (mi == m->pending)
+	s->pending = m->pending;
+      schedule_remove_entry (m->schedule, (struct schedule_entry *) mi);
+    }
+  multi_thread_clear_recursive_state (m);
+}
+
+static void
+multi_thread_restore (struct multi_context *m,
+		      struct multi_instance *mi,
+		      struct multi_context_thread_save *s)
+{
+  multi_thread_clear_recursive_state (m);
+  m->pending = s->pending;
+  if (mi)
+    mi->busy = false;
+}
+
+#endif
+
+static void
+multi_plugin_call (struct multi_context *m,
+		   struct multi_instance *mi,
+		   const char *name,
+		   int plugin_type,
+		   const char *args,
+		   struct env_set *es)
+{
+#ifdef USE_PTHREAD
+  if (m->top.c1.work_thread)
+    {
+      struct multi_context_thread_save save;
+      multi_thread_save (m, mi, &save);
+      if (work_thread_plugin_call (m->top.c1.work_thread,
+				   m->top.c1.plugins,
+				   plugin_type,
+				   args,
+				   es))
+	msg (M_WARN, "WARNING: %s plugin call failed (work_thread)", name);
+      multi_thread_restore (m, mi, &save);
+    }
+  else
+#endif
+    if (plugin_call (m->top.c1.plugins,
+		     plugin_type,
+		     args,
+		     es))
+      msg (M_WARN, "WARNING: %s plugin call failed", name);
+}
+
+static void
+multi_system_check (struct multi_context *m,
+		    struct multi_instance *mi,
+		    const char *name,
+		    const char *command,
+		    const struct env_set *es,
+		    const unsigned int flags)
+{
+  struct gc_arena gc = gc_new ();
+  struct buffer error = alloc_buf_gc (128, &gc);
+
+  buf_printf (&error, "WARNING: %s command failed", name);
+
+#ifdef USE_PTHREAD
+      if (m->top.c1.work_thread)
+	{
+	  struct multi_context_thread_save save;
+	  buf_printf (&error, " (work_thread)");
+	  multi_thread_save (m, mi, &save);
+	  work_thread_system_check (m->top.c1.work_thread,
+				    command,
+				    es,
+				    flags,
+				    BSTR (&error));
+	  multi_thread_restore (m, mi, &save);
+	}
+      else
+#endif
+	system_check (command, es, flags, BSTR (&error));
+
+  gc_free (&gc);
+}
+
+static void
+learn_address_script (struct multi_context *m,
+		      struct multi_instance *mi,
 		      const char *op,
 		      const struct mroute_addr *addr)
 {
@@ -82,9 +184,7 @@ learn_address_script (const struct multi_context *m,
       if (mi)
 	buf_printf (&cmd, " \"%s\"", tls_common_name (mi->context.c2.tls_multi, false));
 
-      if (plugin_call (m->top.c1.plugins, OPENVPN_PLUGIN_LEARN_ADDRESS, BSTR (&cmd), es))
-	msg (M_WARN, "WARNING: learn-address plugin call failed");
-
+      multi_plugin_call (m, mi, "learn-address", OPENVPN_PLUGIN_LEARN_ADDRESS, BSTR (&cmd), es);
     }
 
   if (m->top.options.learn_address_script)
@@ -100,8 +200,7 @@ learn_address_script (const struct multi_context *m,
       if (mi)
 	buf_printf (&cmd, " \"%s\"", tls_common_name (mi->context.c2.tls_multi, false));
 
-      system_check (BSTR (&cmd), es, S_SCRIPT, "WARNING: learn-address command failed");
-
+      multi_system_check (m, mi, "learn-address", BSTR (&cmd), es, S_SCRIPT);
     }
 
   gc_free (&gc);
@@ -120,13 +219,16 @@ multi_ifconfig_pool_persist (struct multi_context *m, bool force)
 }
 
 static void
-multi_reap_range (const struct multi_context *m,
+multi_reap_range (struct multi_context *m,
 		  int start_bucket,
 		  int end_bucket)
 {
   struct gc_arena gc = gc_new ();
   struct hash_iterator hi;
   struct hash_element *he;
+  struct mroute_addr *array = NULL;
+  int array_capacity = 0;
+  int array_size = 0;
 
   if (start_bucket < 0)
     {
@@ -143,17 +245,32 @@ multi_reap_range (const struct multi_context *m,
 	{
 	  msg (D_MULTI_DEBUG, "MULTI: REAP DEL %s",
 	       mroute_addr_print (&r->addr, &gc));
-	  learn_address_script (m, NULL, "delete", &r->addr);
+	  if (!array)
+	    {
+	      array_capacity = end_bucket - start_bucket;
+	      array_size = 0;
+	      ALLOC_ARRAY_GC (array, struct mroute_addr, array_capacity, &gc);
+	    }
+	  ASSERT (array_size <= array_capacity);
+	  array[array_size++] = r->addr;
 	  multi_route_del (r);
 	  hash_iterator_delete_element (&hi);
 	}
     }
   hash_iterator_free (&hi);
+
+  if (array)
+    {
+      int i;
+      for (i = 0; i < array_size; ++i)
+	learn_address_script (m, NULL, "delete", &array[i]);
+    }
+
   gc_free (&gc);
 }
 
 static void
-multi_reap_all (const struct multi_context *m)
+multi_reap_all (struct multi_context *m)
 {
   multi_reap_range (m, -1, 0);
 }
@@ -170,7 +287,7 @@ multi_reap_new (int buckets_per_pass)
 }
 
 void
-multi_reap_process_dowork (const struct multi_context *m)
+multi_reap_process_dowork (struct multi_context *m)
 {
   struct multi_reap *mr = m->reaper;
   if (mr->bucket_base >= hash_n_buckets (m->vhash))
@@ -199,7 +316,7 @@ reap_buckets_per_pass (int n_buckets)
  * Main initialization function, init multi_context object.
  */
 void
-multi_init (struct multi_context *m, struct context *t, bool tcp_mode, int thread_mode)
+multi_init (struct multi_context *m, struct context *t, bool tcp_mode)
 {
   int dev = DEV_TYPE_UNDEF;
 
@@ -217,8 +334,6 @@ multi_init (struct multi_context *m, struct context *t, bool tcp_mode, int threa
    */
   CLEAR (*m);
   
-  m->thread_mode = thread_mode;
-
   /*
    * Real address hash table (source port number is
    * considered to be part of the address).  Used
@@ -402,8 +517,7 @@ multi_client_disconnect_script (struct multi_context *m,
 
   if (plugin_defined (m->top.c1.plugins, OPENVPN_PLUGIN_CLIENT_DISCONNECT))
     {
-      if (plugin_call (m->top.c1.plugins, OPENVPN_PLUGIN_CLIENT_DISCONNECT, NULL, mi->context.c2.es))
-	msg (M_WARN, "WARNING: client-disconnect plugin call failed");
+      multi_plugin_call (m, mi, "client-disconnect", OPENVPN_PLUGIN_CLIENT_DISCONNECT, NULL, mi->context.c2.es);
     }
 
   if (mi->context.options.client_disconnect_script)
@@ -415,7 +529,7 @@ multi_client_disconnect_script (struct multi_context *m,
 
       buf_printf (&cmd, "%s", mi->context.options.client_disconnect_script);
 
-      system_check (BSTR (&cmd), mi->context.c2.es, S_SCRIPT, "client-disconnect command failed");
+      multi_system_check (m, mi, "client-disconnect", BSTR (&cmd), mi->context.c2.es, S_SCRIPT);
 
       gc_free (&gc);
     }
@@ -426,10 +540,16 @@ multi_close_instance (struct multi_context *m,
 		      struct multi_instance *mi,
 		      bool shutdown)
 {
+  const bool partial = multi_instance_busy (mi);
+
   perf_push (PERF_MULTI_CLOSE_INSTANCE);
 
   ASSERT (!mi->halt);
-  mi->halt = true;
+
+  if (partial)
+    mi->context.sig->signal_received = SIGTERM;
+  else
+    mi->halt = true;
 
   msg (D_MULTI_DEBUG, "MULTI: multi_close_instance called");
 
@@ -444,39 +564,57 @@ multi_close_instance (struct multi_context *m,
       if (mi->did_real_hash)
 	{
 	  ASSERT (hash_remove (m->hash, &mi->real));
+	  mi->did_real_hash = false;
 	}
       if (mi->did_iter)
 	{
 	  ASSERT (hash_remove (m->iter, &mi->real));
+	  mi->did_iter = false;
 	}
 
       schedule_remove_entry (m->schedule, (struct schedule_entry *) mi);
 
       ifconfig_pool_release (m->ifconfig_pool, mi->vaddr_handle, false);
+      mi->vaddr_handle = -1;
 
-      multi_del_iroutes (m, mi);
-
-      if (m->mtcp)
-	multi_tcp_dereference_instance (m->mtcp, mi);
+      if (mi->did_iroutes)
+	{
+	  multi_del_iroutes (m, mi);
+	  mi->did_iroutes = false;
+	}
 
       mbuf_dereference_instance (m->mbuf, mi);
+
+      if (!partial)
+	{
+	  if (m->mtcp)
+	    multi_tcp_dereference_instance (m->mtcp, mi);
+	}
+
     }
 
-  multi_client_disconnect_script (m, mi);
+  if (!partial)
+    {
+      if (mi->enable_client_disconnect_script)
+	{
+	  multi_client_disconnect_script (m, mi);
+	  mi->enable_client_disconnect_script = false;
+	}
 
-  if (mi->did_open_context)
-    close_context (&mi->context, SIGTERM, CC_GC_FREE);
+      if (mi->did_open_context)
+	close_context (&mi->context, SIGTERM, CC_GC_FREE);
 
-  multi_tcp_instance_specific_free (mi);
+      multi_tcp_instance_specific_free (mi);
 
-  ungenerate_prefix (mi);
+      ungenerate_prefix (mi);
 
-  /*
-   * Don't actually delete the instance memory allocation yet,
-   * because virtual routes may still point to it.  Let the
-   * vhash reaper deal with it.
-   */
-  multi_instance_dec_refcount (mi);
+      /*
+       * Don't actually delete the instance memory allocation yet,
+       * because virtual routes may still point to it.  Let the
+       * vhash reaper deal with it.
+       */
+      multi_instance_dec_refcount (mi);
+    }
 
   perf_pop ();
 }
@@ -487,43 +625,34 @@ multi_close_instance (struct multi_context *m,
 void
 multi_uninit (struct multi_context *m)
 {
-  if (m->thread_mode & MC_WORK_THREAD)
+  if (m->hash)
     {
-      multi_top_free (m);
-      m->thread_mode = MC_UNDEF;
-    }
-  else if (m->thread_mode)
-    {
-      if (m->hash)
+      struct hash_iterator hi;
+      struct hash_element *he;
+
+      hash_iterator_init (m->iter, &hi, true);
+      while ((he = hash_iterator_next (&hi)))
 	{
-	  struct hash_iterator hi;
-	  struct hash_element *he;
-
-	  hash_iterator_init (m->iter, &hi, true);
-	  while ((he = hash_iterator_next (&hi)))
-	    {
-	      struct multi_instance *mi = (struct multi_instance *) he->value;
-	      mi->did_iter = false;
-	      multi_close_instance (m, mi, true);
-	    }
-	  hash_iterator_free (&hi);
-
-	  multi_reap_all (m);
-
-	  hash_free (m->hash);
-	  hash_free (m->vhash);
-	  hash_free (m->iter);
-	  m->hash = NULL;
-
-	  schedule_free (m->schedule);
-	  mbuf_free (m->mbuf);
-	  ifconfig_pool_free (m->ifconfig_pool);
-	  frequency_limit_free (m->new_connection_limiter);
-	  multi_reap_free (m->reaper);
-	  mroute_helper_free (m->route_helper);
-	  multi_tcp_free (m->mtcp);
-	  m->thread_mode = MC_UNDEF;
+	  struct multi_instance *mi = (struct multi_instance *) he->value;
+	  mi->did_iter = false;
+	  multi_close_instance (m, mi, true);
 	}
+      hash_iterator_free (&hi);
+
+      multi_reap_all (m);
+
+      hash_free (m->hash);
+      hash_free (m->vhash);
+      hash_free (m->iter);
+      m->hash = NULL;
+
+      schedule_free (m->schedule);
+      mbuf_free (m->mbuf);
+      ifconfig_pool_free (m->ifconfig_pool);
+      frequency_limit_free (m->new_connection_limiter);
+      multi_reap_free (m->reaper);
+      mroute_helper_free (m->route_helper);
+      multi_tcp_free (m->mtcp);
     }
 }
 
@@ -542,7 +671,6 @@ multi_create_instance (struct multi_context *m, const struct mroute_addr *real)
 
   ALLOC_OBJ_CLEAR (mi, struct multi_instance);
 
-  mutex_init (&mi->mutex);
   mi->gc = gc_new ();
   multi_instance_inc_refcount (mi);
   mi->vaddr_handle = -1;
@@ -757,6 +885,8 @@ multi_learn_addr (struct multi_context *m,
 		  const struct mroute_addr *addr,
 		  const unsigned int flags)
 {
+  const char *la_type = NULL;
+  const struct mroute_addr *la_addr = NULL;
   struct hash_element *he;
   const uint32_t hv = hash_value (m->vhash, addr);
   struct hash_bucket *bucket = hash_bucket (m->vhash, hv);
@@ -799,13 +929,15 @@ multi_learn_addr (struct multi_context *m,
 	  /* modify hash table entry, replacing old route */
 	  he->key = &newroute->addr;
 	  he->value = newroute;
-	  learn_address_script (m, mi, "update", &newroute->addr);
+	  la_type = "update";
+	  la_addr = &newroute->addr;
 	}
       else
 	{
 	  /* add new route */
 	  hash_add_fast (m->vhash, bucket, &newroute->addr, hv, newroute);
-	  learn_address_script (m, mi, "add", &newroute->addr);
+	  la_type = "add";
+	  la_addr = &newroute->addr;
 	}
 
       msg (D_MULTI_LOW, "MULTI: Learn: %s -> %s",
@@ -816,6 +948,9 @@ multi_learn_addr (struct multi_context *m,
     }
 
   hash_bucket_unlock (bucket);
+
+  if (la_type)
+    learn_address_script (m, mi, la_type, la_addr);
 }
 
 /*
@@ -1203,8 +1338,7 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 
 	  delete_file (dc_file);
 
-	  if (plugin_call (m->top.c1.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT, dc_file, mi->context.c2.es))
-	    msg (M_WARN, "WARNING: client-connect plugin call failed");
+	  multi_plugin_call (m, mi, "client-connect", OPENVPN_PLUGIN_CLIENT_CONNECT, dc_file, mi->context.c2.es);
 
 	  multi_client_connect_post (m, mi, dc_file, option_permissions_mask, &option_types_found);
 	}
@@ -1227,10 +1361,15 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 		      mi->context.options.client_connect_script,
 		      dc_file);
 
-	  system_check (BSTR (&cmd), mi->context.c2.es, S_SCRIPT, "client-connect command failed");
+	  multi_system_check (m, mi, "client-connect", BSTR (&cmd), mi->context.c2.es, S_SCRIPT);
 
 	  multi_client_connect_post (m, mi, dc_file, option_permissions_mask, &option_types_found);
 	}
+
+      /*
+       * Enable the client disconnect script/plugin to be run if one was specified.
+       */
+      mi->enable_client_disconnect_script = true;
 
       /*
        * Process sourced options.
@@ -1270,6 +1409,9 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 	   * if it matches one of the client's iroutes.
 	   */
 	  remove_iroutes_from_push_route_list (&mi->context.options);
+
+	  /* indicate that we set iroutes */
+	  mi->did_iroutes = true;
 	}
       else if (mi->context.options.iroutes)
 	{
@@ -1972,126 +2114,6 @@ tunnel_server (struct context *top)
     ASSERT (0);
   }
 }
-
-#ifdef USE_PTHREAD
-
-/*
- * Multithreading support
- */
-void
-inherit_multi_context (struct multi_context *dest, const struct multi_context *src, const unsigned int thread_mode)
-{
-  ASSERT (thread_mode & MC_WORK_THREAD);
-
-  *dest = *src;
-  dest->thread_mode = thread_mode;
-  dest->pending = NULL;
-  dest->earliest_wakeup = NULL;
-  dest->mpp_touched = NULL;
-  dest->per_second_trigger = 0;
-  multi_top_init (dest, &src->top, true);
-}
-
-void
-multi_acquire_io_lock (struct multi_context *m, const unsigned int iow_flags)
-{
-  msg (D_THREAD_DEBUG, "THREAD: acquire I/O lock ENTRY, flags=0x%08x", iow_flags);
-  if ((iow_flags & IOW_READ) && !m->thread_local.read_owned)
-    {
-      mutex_lock (&m->thread_shared->read.mutex);
-      m->thread_local.read_owned = true;
-    }
-  else
-    {
-      if ((iow_flags & (IOW_TO_LINK | IOW_MBUF)) && !m->thread_local.write_link_owned)
-	{
-	  mutex_lock (&m->thread_shared->write_link.mutex);
-	  m->thread_local.write_link_owned = true;
-	}
-      if ((iow_flags & IOW_TO_TUN) && !m->thread_local.write_tun_owned)
-	{
-	  mutex_lock (&m->thread_shared->write_tun.mutex);
-	  m->thread_local.write_tun_owned = true;
-	}
-    }
-  msg (D_THREAD_DEBUG, "THREAD: acquire I/O lock EXIT, flags=0x%08x", iow_flags);
-}
-
-void
-multi_release_io_lock (struct multi_context *m)
-{
-  msg (D_THREAD_DEBUG, "THREAD: release I/O lock");
-  if (m->thread_local.read_owned)
-    {
-      mutex_unlock (&m->thread_shared->read.mutex);
-      m->thread_local.read_owned = false;
-    }
-  if (m->thread_local.write_link_owned)
-    {
-      mutex_unlock (&m->thread_shared->write_link.mutex);
-      m->thread_local.write_link_owned = false;
-    }
-  if (m->thread_local.write_tun_owned)
-    {
-      mutex_unlock (&m->thread_shared->write_tun.mutex);
-      m->thread_local.write_tun_owned = false;
-    }
-}
-
-void
-thread_shared_init (struct multi_context_thread_shared *ts)
-{
-  CLEAR (*ts);
-  mutex_init (&ts->read.mutex);
-  mutex_init (&ts->write_link.mutex);
-  mutex_init (&ts->write_tun.mutex);
-}
-
-void
-thread_shared_uninit (struct multi_context_thread_shared *ts)
-{
-  mutex_destroy (&ts->read.mutex);
-  mutex_destroy (&ts->write_link.mutex);
-  mutex_destroy (&ts->write_tun.mutex);
-}
-
-void
-multi_set_pending (struct multi_context *m, struct multi_instance *mi)
-{
-  if (mi)
-    {
-      if (mi != m->thread_local.held)
-	{
-	  if (m->thread_local.held)
-	    {
-	      mutex_unlock (&m->thread_local.held->mutex);
-	      m->thread_local.held = NULL;
-	    }
-	  if (mutex_trylock (&mi->mutex))
-	    {
-	      m->thread_local.held = mi;
-	      m->pending = mi;
-	      msg (D_THREAD_DEBUG, "THREAD: instance lock SUCCEEDED");
-	    }
-	  else
-	    {
-	      m->pending = NULL;
-	      msg (D_THREAD_DEBUG, "THREAD: instance lock FAILED");
-	    }
-	}
-    }
-  else
-    {
-      if (m->thread_local.held)
-	{
-	  mutex_unlock (&m->thread_local.held->mutex);
-	  m->thread_local.held = NULL;
-	}
-      m->pending = NULL;
-    }
-}
-
-#endif /* USE_PTHREAD */
 
 #else
 static void dummy(void) {}

@@ -219,12 +219,9 @@ static const char usage_message[] =
   "--suppress-timestamps : Don't log timestamps to stdout/stderr.\n"
   "--writepid file : Write main process ID to file.\n"
   "--nice n        : Change process priority (>0 = lower, <0 = higher).\n"
-#if 0
 #ifdef USE_PTHREAD
-  "--nice-work n   : Change thread priority of work thread.  The work\n"
-  "                  thread is used for background processing such as\n"
-  "                  RSA key number crunching.\n"
-#endif
+  "--work-thread   : Enable work thread for processing high-latency functions.\n"
+  "--nice-work n   : Change 'nice' thread priority of work thread.\n"
 #endif
   "--echo [parms ...] : Echo parameters to log output.\n"
   "--verb n        : Set output verbosity to n (default=%d):\n"
@@ -2746,16 +2743,11 @@ add_option (struct options *options,
       VERIFY_PERMISSION (OPT_P_NICE);
       options->nice_work = atoi (p[1]);
     }
-  else if (streq (p[0], "threads") && p[1])
+  else if (streq (p[0], "work-thread"))
     {
       ++i;
       VERIFY_PERMISSION (OPT_P_GENERAL);
-      options->n_threads = positive (atoi (p[1]));
-      if (options->n_threads < 1)
-	{
-	  msg (msglevel, "Options error: --threads parameter must be at least 1");
-	  goto err;
-	}
+      options->n_threads = 2;
     }
 #endif
   else if (streq (p[0], "shaper") && p[1])

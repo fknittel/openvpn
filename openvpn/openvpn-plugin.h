@@ -23,6 +23,9 @@
  *  59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#ifndef OPENVPN_PLUGIN_HEADER
+#define OPENVPN_PLUGIN_HEADER
+
 /*
  * Plug-in types.  These types correspond to the set of script callbacks
  * supported by OpenVPN.
@@ -176,3 +179,5 @@ OPENVPN_PLUGIN_DEF int OPENVPN_PLUGIN_FUNC(openvpn_plugin_func_v1)
  */
 OPENVPN_PLUGIN_DEF void OPENVPN_PLUGIN_FUNC(openvpn_plugin_close_v1)
      (openvpn_plugin_handle_t handle);
+
+#endif /* OPENVPN_PLUGIN_HEADER */
