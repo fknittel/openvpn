@@ -5,7 +5,7 @@
  *             packet encryption, packet authentication, and
  *             packet compression.
  *
- *  Copyright (C) 2002-2004 James Yonan <jim@yonan.net>
+ *  Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -186,6 +186,20 @@ man_prompt (struct management *man)
   else
     man_output_list_push (man, PACKAGE_NAME ">");
 #endif
+}
+
+static void
+man_close_socket (struct management *man, const socket_descriptor_t sd)
+{
+#ifndef WIN32
+  /*
+   * Windows doesn't need this because the ne32 event is permanently
+   * enabled at struct management scope.
+   */
+  if (man->persist.callback.delete_event)
+    (*man->persist.callback.delete_event) (man->persist.callback.arg, sd);
+#endif
+  openvpn_close_socket (sd);
 }
 
 static void
@@ -751,8 +765,6 @@ man_accept (struct management *man)
 #ifdef WIN32
 	  man_stop_ne32 (man);
 #endif
-	  openvpn_close_socket (man->connection.sd_top);
-	  man->connection.sd_top = SOCKET_UNDEFINED;
 	}
 
       /*
@@ -796,34 +808,37 @@ man_listen (struct management *man)
    * Initialize state
    */
   man->connection.state = MS_LISTEN;
-
-  /*
-   * Initialize socket
-   */
   man->connection.sd_cli = SOCKET_UNDEFINED;
-  man->connection.sd_top = create_socket_tcp ();
 
   /*
-   * Bind socket
+   * Initialize listening socket
    */
-  if (bind (man->connection.sd_top, (struct sockaddr *) &man->settings.local, sizeof (man->settings.local)))
-    msg (M_SOCKERR, "MANAGEMENT: Cannot bind TCP socket on %s",
-	 print_sockaddr (&man->settings.local, &gc));
+  if (man->connection.sd_top == SOCKET_UNDEFINED)
+    {
+      man->connection.sd_top = create_socket_tcp ();
 
-  /*
-   * Listen for connection
-   */
-  if (listen (man->connection.sd_top, 1))
-    msg (M_SOCKERR, "MANAGEMENT: listen() failed");
+      /*
+       * Bind socket
+       */
+      if (bind (man->connection.sd_top, (struct sockaddr *) &man->settings.local, sizeof (man->settings.local)))
+	msg (M_SOCKERR, "MANAGEMENT: Cannot bind TCP socket on %s",
+	     print_sockaddr (&man->settings.local, &gc));
 
-  /*
-   * Set misc socket properties
-   */
-  set_nonblock (man->connection.sd_top);
-  set_cloexec (man->connection.sd_top);
+      /*
+       * Listen for connection
+       */
+      if (listen (man->connection.sd_top, 1))
+	msg (M_SOCKERR, "MANAGEMENT: listen() failed");
 
-  msg (D_MANAGEMENT, "MANAGEMENT: TCP Socket listening on %s",
-       print_sockaddr (&man->settings.local, &gc));
+      /*
+       * Set misc socket properties
+       */
+      set_nonblock (man->connection.sd_top);
+      set_cloexec (man->connection.sd_top);
+
+      msg (D_MANAGEMENT, "MANAGEMENT: TCP Socket listening on %s",
+	   print_sockaddr (&man->settings.local, &gc));
+    }
 
 #ifdef WIN32
   man_start_ne32 (man);
@@ -841,7 +856,7 @@ man_reset_client_socket (struct management *man, const bool listen)
 #ifdef WIN32
       man_stop_ne32 (man);
 #endif
-      openvpn_close_socket (man->connection.sd_cli);
+      man_close_socket (man, man->connection.sd_cli);
       command_line_reset (man->connection.in);
       output_list_reset (man->connection.out);
     }
@@ -1186,17 +1201,19 @@ man_connection_init (struct management *man)
 }
 
 static void
-man_connection_close (struct man_connection *mc)
+man_connection_close (struct management *man)
 {
+  struct man_connection *mc = &man->connection;
+
   if (mc->es)
     event_free (mc->es);
 #ifdef WIN32
   net_event_win32_close (&mc->ne32);
 #endif
   if (socket_defined (mc->sd_top))
-    openvpn_close_socket (mc->sd_top);
+    man_close_socket (man, mc->sd_top);
   if (socket_defined (mc->sd_cli))
-    openvpn_close_socket (mc->sd_cli);
+    man_close_socket (man, mc->sd_cli);
   if (mc->in)
     command_line_free (mc->in);
   if (mc->out)
@@ -1276,7 +1293,7 @@ management_open (struct management *man,
 void
 management_close (struct management *man)
 {
-  man_connection_close (&man->connection);
+  man_connection_close (man);
   man_settings_close (&man->settings);
   man_persist_close (&man->persist);
   free (man);
@@ -1382,7 +1399,7 @@ void
 management_pre_tunnel_close (struct management *man)
 {
   if (man->settings.management_over_tunnel)
-    man_connection_close (&man->connection);
+    man_connection_close (man);
 }
 
 void

@@ -1,22 +1,53 @@
 OpenVPN
-Copyright (C) 2002-2004 James Yonan <jim@yonan.net>
+Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
 
 $Id$
 
-2004.12.xx -- Version 2.0-rc6aMT
+2005.01.18 -- Version 2.0-rc8MT
+
+* Merged with 2.0-rc8.
+	
+2004.12.30 -- Version 2.0-rc6aMT
 
 * Merged with 2.0-rc6a.
 
-2004.12.xx -- Version 2.0-rc7
+2005.01.15 -- Version 2.0-rc8
 
+* Fixed bug introduced in rc7 where options error
+  "--auth-user-pass requires --pull" might occur even
+  if --pull was correctly specified.
+* Changed management interface code to bind once
+  to TCP socket, rather than rebinding after every
+  client disconnect.
+* Added "disable" directive for client-config-dir
+  files.
+* Windows binary install is now distributed with
+  OpenSSL 0.9.7e.
+* Query the management interface for --http-proxy
+  username/password if authfile is set to "stdin".
+* Added current OpenVPN version number to "Unrecognized
+  option or missing parameter" error message.
+* Added "-extensions server" to "openssl req" command
+  in easy-rsa/build-key-server (Nir Yeffet).
+	
+2005.01.10 -- Version 2.0-rc7
+
+* Fixed bug in management interface which could cause
+  100% CPU utilization in --proto tcp-server mode
+  on all *nix OSes except for Linux 2.6.
 * --ifconfig-push now accepts DNS names as well as
   IP addresses.
+* Added sanity check errors when --pull or
+  --auth-user-pass is used in an incorrect mode.
 * Updated man page entries for --client-connect and
   --ifconfig-push.
 * Added "String Types and Remapping" section to man
   page to consisely document the way which OpenVPN
   may convert certain types of characters in strings
   to ('_').
+* Modified bridging description in HOWTO to emphasize
+  the fact that bridging allows Windows file and print
+  sharing without a WINS server (Charles Duffy).
 
 2004.12.20 -- Version 2.0-rc6
 
@@ -27,7 +58,7 @@ $Id$
   with "MULTI: Outgoing TUN queue full, dropped packet".
   So far the issue only seems to occur on Linux 2.2
   in --mode server --proto tcp mode.  It occurs when
-  the TUN/TAP driver locks up and refuses to except
+  the TUN/TAP driver locks up and refuses to accept
   new packet writes for a second or more.
 * Fixed bug where if a --client-config-dir file tried
   to include another file using "config", and if that
@@ -1408,7 +1439,7 @@ $Id$
   style, (b) ISO C 1999 style, and (c) no support.
 * Removed generated files from CVS.  Note INSTALL
   file for new CVS build commands.
-* Changed all internal _* symbols to x_*
+* Changed certain internal symbol names
   for C standards compliance.
 * Added TUN/TAP open code to cycle dynamically
   through unit numbers until it finds a free

@@ -5,7 +5,7 @@
  *             packet encryption, packet authentication, and
  *             packet compression.
  *
- *  Copyright (C) 2002-2004 James Yonan <jim@yonan.net>
+ *  Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -305,10 +305,12 @@ static const char usage_message[] =
   "                  If seconds=0, file will be treated as read-only.\n"
   "--ifconfig-push local remote-netmask : Push an ifconfig option to remote,\n"
   "                  overrides --ifconfig-pool dynamic allocation.\n"
-  "                  Must be associated with a specific client instance.\n"
+  "                  Only valid in a client-specific config file.\n"
   "--iroute network [netmask] : Route subnet to client.\n"
-  "                  Sets up internal routes only, and must be\n"
-  "                  associated with a specific client instance.\n"
+  "                  Sets up internal routes only.\n"
+  "                  Only valid in a client-specific config file.\n"
+  "--disable       : Client is disabled.\n"
+  "                  Only valid in a client-specific config file.\n"
   "--client-cert-not-required : Don't require client certificate, client\n"
   "                  will authenticate using username/password.\n"
   "--username-as-common-name  : For auth-user-pass authentication, use\n"
@@ -1633,6 +1635,9 @@ options_postprocess (struct options *options, bool first_time)
       MUST_BE_UNDEF (crl_file);
       MUST_BE_UNDEF (key_method);
       MUST_BE_UNDEF (ns_cert_type);
+
+      if (pull)
+	msg (M_USAGE, err, "--pull");
     }
 #undef MUST_BE_UNDEF
 #endif /* USE_CRYPTO */
@@ -1652,6 +1657,9 @@ options_postprocess (struct options *options, bool first_time)
       options->ping_rec_timeout = PRE_PULL_INITIAL_PING_RESTART;
       options->ping_rec_timeout_action = PING_RESTART;
     }
+
+  if (options->auth_user_pass_file && !options->pull)
+    msg (M_USAGE, "--auth-user-pass requires --pull");
 
   /*
    * Save certain parms before modifying options via --pull
@@ -2062,7 +2070,8 @@ static void
 usage_version (void)
 {
   msg (M_INFO|M_NOPREFIX, "%s", title_string);
-  msg (M_INFO|M_NOPREFIX, "Copyright (C) 2002-2004 James Yonan <jim@yonan.net>");
+  msg (M_INFO|M_NOPREFIX, "Developed by James Yonan");
+  msg (M_INFO|M_NOPREFIX, "Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>");
   openvpn_exit (OPENVPN_EXIT_STATUS_USAGE); /* exit point */
 }
 
@@ -3716,6 +3725,11 @@ add_option (struct options *options,
 	  goto err;
 	}
     }
+  else if (streq (p[0], "disable"))
+    {
+      VERIFY_PERMISSION (OPT_P_INSTANCE);
+      options->disable = true;
+    }
 #endif /* P2MP_SERVER */
 
   else if (streq (p[0], "client"))
@@ -4347,9 +4361,9 @@ add_option (struct options *options,
   else
     {
       if (file)
-	msg (msglevel, "Unrecognized option or missing parameter(s) in %s:%d: %s", file, line, p[0]);
+	msg (msglevel, "Unrecognized option or missing parameter(s) in %s:%d: %s (%s)", file, line, p[0], PACKAGE_VERSION);
       else
-	msg (msglevel, "Unrecognized option or missing parameter(s): --%s", p[0]);
+	msg (msglevel, "Unrecognized option or missing parameter(s): --%s (%s)", p[0], PACKAGE_VERSION);
     }
  err:
   gc_free (&gc);

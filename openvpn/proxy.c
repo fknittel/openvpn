@@ -5,7 +5,7 @@
  *             packet encryption, packet authentication, and
  *             packet compression.
  *
- *  Copyright (C) 2002-2004 James Yonan <jim@yonan.net>
+ *  Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -283,7 +283,7 @@ new_http_proxy (const struct http_proxy_options *o,
 		     o->auth_file,
 		     false,
 		     "HTTP Proxy",
-		     0);
+		     GET_USER_PASS_MANAGEMENT);
       p->up = static_proxy_user_pass;
     }
 
