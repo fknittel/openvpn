@@ -3,6 +3,151 @@ Copyright (C) 2002-2004 James Yonan <jim@yonan.net>
 
 $Id$
 
+2004.12.xx -- Version 2.0-rc6aMT
+
+* Merged with 2.0-rc6a.
+
+2004.12.xx -- Version 2.0-rc7
+
+* --ifconfig-push now accepts DNS names as well as
+  IP addresses.
+* Updated man page entries for --client-connect and
+  --ifconfig-push.
+* Added "String Types and Remapping" section to man
+  page to consisely document the way which OpenVPN
+  may convert certain types of characters in strings
+  to ('_').
+
+2004.12.20 -- Version 2.0-rc6
+
+* Improved checking for epoll support in ./configure
+  to fix false positive on RH9 (Jan Just Keijser).
+* Made the "MULTI TCP: I/O wait required blocking in
+  multi_tcp_action, action=7" error nonfatal and replaced
+  with "MULTI: Outgoing TUN queue full, dropped packet".
+  So far the issue only seems to occur on Linux 2.2
+  in --mode server --proto tcp mode.  It occurs when
+  the TUN/TAP driver locks up and refuses to except
+  new packet writes for a second or more.
+* Fixed bug where if a --client-config-dir file tried
+  to include another file using "config", and if that
+  include failed, OpenVPN would abort with a fatal
+  error.  Now such inclusion failures will be logged
+  but are no longer fatal.
+* Global changes to the way that packet buffer alignment
+  is handled.  Previously we didn't care about alignment
+  and took care, when handling 16 and 32 bit words
+  in buffers, to always use alignment-safe transfers.
+  This approach appears to be inadequate on some
+  architectures such as alpha.  The new approach is
+  to initialize packet buffers in a way that anticipates
+  how component structures will be allocated within
+  them, to maintain correct alignment.
+* Added --dhcp-option DISABLE-NBT to disable NetBIOS
+  over TCP (Jan Just Keijser).
+* Added --http-proxy-option directive for controlling
+  miscellaneous HTTP proxy options.
+* Management state will no longer transition to "WAIT"
+  during TLS renegotiations.
+
+2004.12.16 -- Version 2.0-rc5
+
+* The --client-config-dir option will now try to open
+  a default file called "DEFAULT" if no file matching
+  the common name of the incoming client was found.
+* The --client-connect script/plugin can now veto client
+  authentication by returning a failure code.
+* The --learn-address script/plugin can now prevent a
+  client-instance/address association from being learned
+  by returning a failure code.
+* Changed RPM group in .spec file to Applications/Internet.
+
+2004.12.14 -- Version 2.0-rc4
+
+* SuSE only -- Fixed interaction between openvpn.spec and
+  suse/openvpn.init where the .spec file was writing the
+  OpenVPN binary to a different location than where the
+  .init script was referencing it (Stefan Engel).
+* Solaris only -- Split Solaris ifconfig command into two
+  parts (Jan Just Keijser).
+* Some cleanup in add_option().
+* Better error checking on input dotted quad IP addresses.
+* Verify that --push argument is quoted, if there is
+  more than one.
+* More miscellaneous option sanity checks.
+
+2004.12.13 -- Version 2.0-rc3
+
+* On Windows, when --log or --log-append is used,
+  save the original stderr for username and password
+  prompts.
+* Fixed a bug introduced in the late 2.0 betas where
+  if a "verb" parameter >= 16 was used, it would be
+  ignored and the actual verb level would remain at 1.
+* Fixed a bug mostly seen on OS X where --management-hold
+  or --management-query-passwords would cause the management
+  interface to be unresponsive to incoming client connections.
+* Trigger an options error if one of the management-modifying
+  options is used without "management" itself.
+
+2004.12.12 -- Version 2.0-rc2
+
+* Amplified warnings in documentation about possible
+  man-in-the-middle attack when clients do not properly
+  verify server certificate.  Changes to easy-rsa README,
+  FAQ, HOWTO, man page, and sample client config file.
+* Added a warning message if --tls-client or --client
+  is used without also specifying one of either
+  --ns-cert-type, --tls-remote, or --tls-verify.
+* status_open() fixes for MSVC builds (Blaine Fleming).
+* Fix attempt of "ntlm.c:55: error: `des_cblock' undeclared"
+  compiler error which has been reported on some platforms.
+* The openvpn.spec file for rpmbuild has several
+  new build-time options.  See comments in the file.
+* Plugins are now built and packaged in the RPM and
+  will be saved in /usr/share/openvpn/plugin/lib.
+* Added --management-hold directive to start OpenVPN
+  in a hibernating state until released by the
+  management interface.  Also added "hold" command
+  to the management interface.
+ 	
+2004.12.07 -- Version 2.0-rc1
+
+* openvpn.spec workaround for SuSE confusion regarding
+  /etc/init.d vs. /etc/rc.d/init.d (Stefan Engel).
+
+2004.12.05 -- Version 2.0-beta20
+
+* The ability to read --askpass and --auth-user-pass
+  passwords from a file has been disabled by default.
+  To re-enable, use ./configure --enable-password-save.
+* Added additional pre-connected states to management
+  interface.  See management/management-notes.txt
+  for more info.
+* State history is now recorded by the management
+  interface, and the "state" command now works like
+  the log or echo commands.
+* State history and real-time state change notifications
+  are now prepended with an integer unix timestamp.
+* Added --http-proxy-timeout option, previously
+  the timeout was hardcoded to 5 seconds.
+	
+2004.12.02 -- Version 2.0-beta19
+
+* Fixed bug in management interface line termination
+  where output lines incorrectly contained a \00 char
+  after the customary \0d \0a.
+* Fixed bug introduced in beta18 where Windows version
+  would segfault on options errors.
+* Fixed bug in management interface where an empty
+  quoted string ("") entered as a parameter would cause
+  a segfault.
+* Fixed bug where --resolv-retry was not working
+  properly with multiple --remote hosts.
+* Added additional ./configure options to reduce
+  executable size for embedded applications.
+  See ./configure --help.
+
 2004.11.28 -- Version 2.0-beta18
 
 * Added management interface.  See new --management-*

@@ -42,11 +42,16 @@
 #include <openssl/hmac.h>
 #include <openssl/des.h>
 #include <openssl/md5.h>
+#include <openssl/md4.h>
 #include <openssl/sha.h>
 #include <openssl/err.h>
 
 #if CRYPTO_ENGINE
 #include <openssl/engine.h>
+#endif
+
+#if SSLEAY_VERSION_NUMBER >= 0x00907000L
+#include <openssl/des_old.h>
 #endif
 
 #include "basic.h"
@@ -346,7 +351,7 @@ void verify_fix_key2 (struct key2 *key2, const struct key_type *kt, const char *
 
 void must_have_n_keys (const char *filename, const char *option, const struct key2 *key2, int n);
 
-int ascii2keydirection (const char *str);
+int ascii2keydirection (int msglevel, const char *str);
 
 const char *keydirection2ascii (int kd, bool remote);
 

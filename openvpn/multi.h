@@ -26,7 +26,7 @@
 #ifndef MULTI_H
 #define MULTI_H
 
-#if P2MP
+#if P2MP_SERVER
 
 #include "init.h"
 #include "forward.h"
@@ -177,6 +177,8 @@ bool multi_process_post (struct multi_context *m, struct multi_instance *mi, con
 
 bool multi_process_incoming_link (struct multi_context *m, struct multi_instance *instance, const unsigned int mpp_flags);
 bool multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flags);
+
+void multi_process_drop_outgoing_tun (struct multi_context *m, const unsigned int mpp_flags);
 
 void multi_print_status (struct multi_context *m, struct status_output *so, const int version);
 
@@ -427,5 +429,5 @@ multi_set_pending (struct multi_context *m, struct multi_instance *mi)
     m->pending = mi;
 }
 
-#endif /* P2MP */
+#endif /* P2MP_SERVER */
 #endif /* MULTI_H */

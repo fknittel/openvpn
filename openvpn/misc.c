@@ -361,7 +361,7 @@ openvpn_chdir (const char* dir)
  *  dup inetd/xinetd socket descriptor and save
  */
 
-int inetd_socket_descriptor = -1; /* GLOBAL */
+int inetd_socket_descriptor = SOCKET_UNDEFINED; /* GLOBAL */
 
 void
 save_inetd_socket_descriptor (void)
@@ -414,10 +414,18 @@ openvpn_system_dowork (const char *command, const struct env_set *es, unsigned i
   if (flags & S_SCRIPT)
     env_set_add_to_environment (es);
 
+  /* debugging */
+  dmsg (D_SCRIPT, "SYSTEM[%u] '%s'", flags, command);
+  if (flags & S_SCRIPT)
+    env_set_print (D_SCRIPT, es);
+
   /*
    * execute the command
    */
   ret = system (command);
+
+  /* debugging */
+  dmsg (D_SCRIPT, "SYSTEM return=%u", ret);
 
   /*
    * remove env_set from environment
@@ -1004,7 +1012,7 @@ test_file (const char *filename)
 	}
     }
 
-  msg (D_TEST_FILE, "TEST FILE '%s' [%d]",
+  dmsg (D_TEST_FILE, "TEST FILE '%s' [%d]",
        filename ? filename : "UNDEF",
        ret);
 
@@ -1190,11 +1198,20 @@ get_user_pass (struct user_pass *up,
 	   */
 	  FILE *fp;
       
+#ifndef ENABLE_PASSWORD_SAVE
+	  /*
+	   * Unless ENABLE_PASSWORD_SAVE is defined, don't allow sensitive passwords
+	   * to be read from a file.
+	   */
+	  if (flags & GET_USER_PASS_SENSITIVE)
+	    msg (M_FATAL, "Sorry, '%s' password cannot be read from a file", prefix);
+#endif
+
 	  warn_if_group_others_accessible (auth_file);
 
 	  fp = fopen (auth_file, "r");
 	  if (!fp)
-	    msg (M_ERR, "Error opening %s auth file: %s", prefix, auth_file);
+	    msg (M_ERR, "Error opening '%s' auth file: %s", prefix, auth_file);
 
 	  if (password_only)
 	    {

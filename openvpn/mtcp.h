@@ -30,11 +30,9 @@
 #ifndef MTCP_H
 #define MTCP_H
 
-#if P2MP
+#if P2MP_SERVER
 
 #include "event.h"
-
-#define MULTI_TCP_TUN_WRITE_TIMEOUT 10
 
 /*
  * Extra state info needed for TCP mode

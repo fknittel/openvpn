@@ -142,6 +142,7 @@ main (int argc, char *argv[])
 	  context_clear_all_except_first_time (&c);
 
 	  /* static signal info object */
+	  CLEAR (siginfo_static);
 	  c.sig = &siginfo_static;
 
 	  /* initialize garbage collector scoped to context object */
@@ -194,12 +195,13 @@ main (int argc, char *argv[])
 	  /* test crypto? */
 	  if (do_test_crypto (&c.options))
 	    break;
-
+	  
 #ifdef ENABLE_MANAGEMENT
 	  /* open management subsystem */
-	  open_management (&c);
+	  if (!open_management (&c))
+	    break;
 #endif
-
+	  
 	  /* set certain options as environmental variables */
 	  setenv_settings (c.es, &c.options);
 
@@ -214,7 +216,7 @@ main (int argc, char *argv[])
 		case MODE_POINT_TO_POINT:
 		  tunnel_point_to_point (&c);
 		  break;
-#if P2MP
+#if P2MP_SERVER
 		case MODE_SERVER:
 		  tunnel_server (&c);
 		  break;
@@ -244,7 +246,7 @@ main (int argc, char *argv[])
   context_gc_free (&c);
 
 #ifdef ENABLE_MANAGEMENT
-  /* close management layer */
+  /* close management interface */
   close_management ();
 #endif
 

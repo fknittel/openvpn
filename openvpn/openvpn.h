@@ -37,6 +37,7 @@
 #include "interval.h"
 #include "status.h"
 #include "fragment.h"
+#include "shaper.h"
 #include "route.h"
 #include "proxy.h"
 #include "socks.h"
@@ -147,11 +148,15 @@ struct context_1
   struct status_output *status_output;
   bool status_output_owned;
 
+#ifdef ENABLE_HTTP_PROXY
   /* HTTP proxy object */
   struct http_proxy_info *http_proxy;
+#endif
 
+#ifdef ENABLE_SOCKS
   /* SOCKS proxy object */
   struct socks_proxy_info *socks_proxy;
+#endif
 
   /* shared object plugins */
   struct plugin_list *plugins;
@@ -161,12 +166,15 @@ struct context_1
   struct work_thread *work_thread;
   
 #if P2MP
-  /* if client mode, option strings we pulled from server */
-  char *pulled_options_string_save;
 
+#if P2MP_SERVER
   /* persist --ifconfig-pool db to file */
   struct ifconfig_pool_persist *ifconfig_pool_persist;
   bool ifconfig_pool_persist_owned;
+#endif
+
+  /* if client mode, option strings we pulled from server */
+  char *pulled_options_string_save;
 
   /* save user/pass for authentication */
   struct user_pass *auth_user_pass;
@@ -216,10 +224,12 @@ struct context_2
   /* MTU frame parameters */
   struct frame frame;
 
+#ifdef ENABLE_FRAGMENT
   /* Object to handle advanced MTU negotiation and datagram fragmentation */
   struct fragment_master *fragment;
   struct frame frame_fragment;
   struct frame frame_fragment_omit;
+#endif
 
 #ifdef HAVE_GETTIMEOFDAY
   /*
@@ -246,6 +256,7 @@ struct context_2
   struct event_timeout ping_send_interval;
   struct event_timeout ping_rec_interval;
 
+#ifdef ENABLE_OCC
   /* the option strings must match across peers */
   char *options_string_local;
   char *options_string_remote;
@@ -253,6 +264,7 @@ struct context_2
   int occ_op;			/* INIT to -1 */
   int occ_n_tries;
   struct event_timeout occ_interval;
+#endif
 
   /*
    * Keep track of maximum packet size received so far
@@ -264,11 +276,13 @@ struct context_2
   int max_send_size_local;	/* max packet size sent */
   int max_send_size_remote;	/* max packet size sent by remote */
 
+#ifdef ENABLE_OCC
   /* remote wants us to send back a load test packet of this size */
   int occ_mtu_load_size;
 
   struct event_timeout occ_mtu_load_test_interval;
   int occ_mtu_load_n_tries;
+#endif
 
 #ifdef USE_CRYPTO
 
@@ -370,11 +384,13 @@ struct context_2
   /* indicates that the do_up_delay function has run */
   bool do_up_ran;
 
+#ifdef ENABLE_OCC
   /* indicates that we have received a SIGTERM when
      options->explicit_exit_notification is enabled,
      but we have not exited yet */
   time_t explicit_exit_notification_time_wait;
   struct event_timeout explicit_exit_notification_interval;
+#endif
 
   /* environmental variables to pass to scripts */
   struct env_set *es;
@@ -383,15 +399,25 @@ struct context_2
   bool fast_io;
 
 #if P2MP
+
+#if P2MP_SERVER
   /* --ifconfig endpoints to be pushed to client */
   bool push_reply_deferred;
   bool push_ifconfig_defined;
   in_addr_t push_ifconfig_local;
   in_addr_t push_ifconfig_remote_netmask;
 
-  struct event_timeout push_request_interval;
+# define CAS_SUCCEEDED 0
+# define CAS_PENDING   1
+# define CAS_FAILED    2
+  int context_auth;
+#endif
 
+  struct event_timeout push_request_interval;
   const char *pulled_options_string;
+
+  struct event_timeout scheduled_exit;
+
 #endif
 };
 
@@ -455,8 +481,9 @@ struct context
  * Macros for referencing objects which may not
  * have been compiled in.
  */
+
 #if defined(USE_CRYPTO) && defined(USE_SSL)
-#define TLS_MODE (c->c2.tls_multi != NULL)
+#define TLS_MODE(c) ((c)->c2.tls_multi != NULL)
 #define PROTO_DUMP_FLAGS (check_debug_level (D_LINK_RW_VERBOSE) ? (PD_SHOW_DATA|PD_VERBOSE) : 0)
 #define PROTO_DUMP(buf, gc) protocol_dump((buf), \
 				      PROTO_DUMP_FLAGS | \
@@ -464,7 +491,7 @@ struct context
 				      (c->options.tls_auth_file ? c->c1.ks.key_type.hmac_length : 0), \
 				      gc)
 #else
-#define TLS_MODE (false)
+#define TLS_MODE(c) (false)
 #define PROTO_DUMP(buf, gc) format_hex (BPTR (buf), BLEN (buf), 80, gc)
 #endif
 
@@ -472,6 +499,12 @@ struct context
 #define MD5SUM(buf, len, gc) md5sum((buf), (len), 0, (gc))
 #else
 #define MD5SUM(buf, len, gc) "[unavailable]"
+#endif
+
+#ifdef USE_CRYPTO
+#define CIPHER_ENABLED(c) (c->c1.ks.key_type.cipher != NULL)
+#else
+#define CIPHER_ENABLED(c) (false)
 #endif
 
 #endif

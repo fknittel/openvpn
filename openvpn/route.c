@@ -40,6 +40,7 @@
 #include "route.h"
 #include "misc.h"
 #include "socket.h"
+#include "manage.h"
 
 #include "memdbg.h"
 
@@ -520,6 +521,17 @@ add_routes (struct route_list *rl, const struct tuntap *tt, unsigned int flags, 
   if (!rl->routes_added)
     {
       int i;
+
+#ifdef ENABLE_MANAGEMENT
+      if (management && rl->n)
+	{
+	  management_set_state (management,
+				OPENVPN_STATE_ADD_ROUTES,
+				NULL,
+				0);
+	}
+#endif
+      
       for (i = 0; i < rl->n; ++i)
 	{
 	  if (flags & ROUTE_DELETE_FIRST)
@@ -547,6 +559,8 @@ delete_routes (struct route_list *rl, const struct tuntap *tt, unsigned int flag
 
   CLEAR (*rl);
 }
+
+#ifdef ENABLE_DEBUG
 
 static const char *
 show_opt (const char *option)
@@ -578,6 +592,8 @@ print_route_options (const struct route_option_list *rol,
   for (i = 0; i < rol->n; ++i)
     print_route_option (&rol->routes[i], level);
 }
+
+#endif
 
 static void
 print_route (const struct route *r, int level)
@@ -1050,7 +1066,7 @@ windows_route_find_if_index (const struct route *r, const struct tuntap *tt)
       ret = ~0;
     }
 
-  msg (D_ROUTE_DEBUG, "DEBUG: route find if: on_tun=%d count=%d index=%d",
+  dmsg (D_ROUTE_DEBUG, "DEBUG: route find if: on_tun=%d count=%d index=%d",
        on_tun,
        count,
        (int)ret);

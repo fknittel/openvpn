@@ -61,6 +61,7 @@ receive_auth_failed (struct context *c, const struct buffer *buffer)
     }
 }
 
+#if P2MP_SERVER
 /*
  * Send auth failed message from server to client.
  */
@@ -69,6 +70,7 @@ send_auth_failed (struct context *c)
 {
   return send_control_channel_string (c, "AUTH_FAILED", D_PUSH);
 }
+#endif
 
 /*
  * Push/Pull
@@ -106,6 +108,7 @@ send_push_request (struct context *c)
   return send_control_channel_string (c, "PUSH_REQUEST", D_PUSH);
 }
 
+#if P2MP_SERVER
 bool
 send_push_reply (struct context *c)
 {
@@ -139,7 +142,9 @@ push_option (struct options *o, const char *opt, int msglevel)
   bool first = false;
 
   if (!string_class (opt, CC_ANY, CC_COMMA))
-    msg (msglevel, "PUSH OPTION FAILED (illegal comma (',') in string): '%s'", opt);
+    {
+      msg (msglevel, "PUSH OPTION FAILED (illegal comma (',') in string): '%s'", opt);
+    }
   else
     {
       if (!o->push_list)
@@ -150,10 +155,15 @@ push_option (struct options *o, const char *opt, int msglevel)
 
       len = strlen (o->push_list->options);
       if (len + strlen (opt) + 2 >= MAX_PUSH_LIST_LEN)
-	msg (msglevel, "Maximum length of --push buffer (%d) has been exceeded", MAX_PUSH_LIST_LEN);
-      if (!first)
-	strcat (o->push_list->options, ",");
-      strcat (o->push_list->options, opt);
+	{
+	  msg (msglevel, "Maximum length of --push buffer (%d) has been exceeded", MAX_PUSH_LIST_LEN);
+	}
+      else
+	{
+	  if (!first)
+	    strcat (o->push_list->options, ",");
+	  strcat (o->push_list->options, opt);
+	}
     }
 }
 
@@ -162,6 +172,7 @@ push_reset (struct options *o)
 {
   o->push_list = NULL;
 }
+#endif
 
 int
 process_incoming_push_msg (struct context *c,
@@ -173,14 +184,16 @@ process_incoming_push_msg (struct context *c,
   int ret = PUSH_MSG_ERROR;
   struct buffer buf = *buffer;
 
+#if P2MP_SERVER
   if (buf_string_compare_advance (&buf, "PUSH_REQUEST"))
     {
-      if (!tls_authenticated (c->c2.tls_multi))
+      if (!tls_authenticated (c->c2.tls_multi) || c->c2.context_auth == CAS_FAILED)
 	{
 	  send_auth_failed (c);
+	  schedule_exit (c, c->options.scheduled_exit_interval);
 	  ret = PUSH_MSG_AUTH_FAILURE;
 	}
-      else if (!c->c2.push_reply_deferred)
+      else if (!c->c2.push_reply_deferred && c->c2.context_auth == CAS_SUCCEEDED)
 	{
 	  if (send_push_reply (c))
 	    ret = PUSH_MSG_REQUEST;
@@ -190,7 +203,10 @@ process_incoming_push_msg (struct context *c,
 	  ret = PUSH_MSG_REQUEST_DEFERRED;
 	}
     }
-  else if (honor_received_options && buf_string_compare_advance (&buf, "PUSH_REPLY"))
+  else
+#endif
+
+  if (honor_received_options && buf_string_compare_advance (&buf, "PUSH_REPLY"))
     {
       const uint8_t ch = buf_read_u8 (&buf);
       if (ch == ',')
@@ -213,6 +229,7 @@ process_incoming_push_msg (struct context *c,
   return ret;
 }
 
+#if P2MP_SERVER
 /*
  * Remove iroutes from the push_list.
  */
@@ -293,5 +310,6 @@ remove_iroutes_from_push_route_list (struct options *o)
       gc_free (&gc);
     }
 }
+#endif
 
 #endif

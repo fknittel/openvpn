@@ -31,7 +31,7 @@
 
 #include "syshead.h"
 
-#if P2MP
+#if P2MP_SERVER
 
 #include "multi.h"
 #include "forward-inline.h"
@@ -51,6 +51,7 @@
 #define TA_TUN_WRITE             7
 #define TA_INITIAL               8
 #define TA_TIMEOUT               9
+#define TA_TUN_WRITE_TIMEOUT     10
 
 /*
  * Special tags passed to event.[ch] functions
@@ -100,6 +101,8 @@ pract (int action)
       return "TA_INITIAL";
     case TA_TIMEOUT:
       return "TA_TIMEOUT";
+    case TA_TUN_WRITE_TIMEOUT:
+      return "TA_TUN_WRITE_TIMEOUT";
     default:
       return "?";
     }
@@ -139,11 +142,11 @@ multi_create_instance_tcp (struct multi_context *m)
       hash_bucket_unlock (bucket);
     }
 
-#ifdef MULTI_DEBUG
+#ifdef ENABLE_DEBUG
   if (mi)
-    msg (D_MULTI_DEBUG, "MULTI TCP: instance added: %s", mroute_addr_print (&mi->real, &gc));
+    dmsg (D_MULTI_DEBUG, "MULTI TCP: instance added: %s", mroute_addr_print (&mi->real, &gc));
   else
-    msg (D_MULTI_DEBUG, "MULTI TCP: new client instance failed");
+    dmsg (D_MULTI_DEBUG, "MULTI TCP: new client instance failed");
 #endif
 
   gc_free (&gc);
@@ -269,7 +272,7 @@ multi_tcp_process_outgoing_link_ready (struct multi_context *m, struct multi_ins
   /* extract from queue */
   if (mbuf_extract_item (mi->tcp_link_out_deferred, &item, true)) /* ciphertext IP packet */
     {
-      msg (D_MULTI_TCP, "MULTI TCP: transmitting previously deferred packet");
+      dmsg (D_MULTI_TCP, "MULTI TCP: transmitting previously deferred packet");
 
       ASSERT (mi == item.instance);
       mi->context.c2.to_link = item.buffer->buf;
@@ -299,7 +302,7 @@ multi_tcp_process_outgoing_link (struct multi_context *m, bool defer, const unsi
 	      struct mbuf_item item;
 
 	      set_prefix (mi);
-	      msg (D_MULTI_TCP, "MULTI TCP: queuing deferred packet");
+	      dmsg (D_MULTI_TCP, "MULTI TCP: queuing deferred packet");
 	      item.buffer = mb;
 	      item.instance = mi;
 	      mbuf_add_item (mi->tcp_link_out_deferred, &item);
@@ -327,7 +330,7 @@ multi_tcp_wait_lite (struct multi_context *m, struct multi_instance *mi, const i
   struct context *c = multi_tcp_context (m, mi);
   unsigned int looking_for = 0;
 
-  msg (D_MULTI_DEBUG, "MULTI TCP: multi_tcp_wait_lite a=%s mi=" ptr_format,
+  dmsg (D_MULTI_DEBUG, "MULTI TCP: multi_tcp_wait_lite a=%s mi=" ptr_format,
        pract(action),
        (ptr_type)mi);
 
@@ -348,8 +351,10 @@ multi_tcp_wait_lite (struct multi_context *m, struct multi_instance *mi, const i
       case TA_TUN_WRITE:
 	looking_for = TUN_WRITE;
 	tun_input_pending = NULL;
-	c->c2.timeval.tv_sec = MULTI_TCP_TUN_WRITE_TIMEOUT;
+	c->c2.timeval.tv_sec = 1; /* For some reason, the Linux 2.2 TUN/TAP driver hits this timeout */
+	perf_push (PERF_PROC_OUT_TUN_MTCP);
 	io_wait (c, IOW_TO_TUN);
+	perf_pop ();
 	break;
       case TA_SOCKET_WRITE:
 	looking_for = SOCKET_WRITE;
@@ -361,16 +366,25 @@ multi_tcp_wait_lite (struct multi_context *m, struct multi_instance *mi, const i
 
   if (tun_input_pending && (c->c2.event_set_status & TUN_READ))
     *tun_input_pending = true;
+
   if (c->c2.event_set_status & looking_for)
     {
       return action;
     }
   else
     {
-      if (action == TA_SOCKET_WRITE) /* TCP socket output buffer is full */
-	return TA_SOCKET_WRITE_DEFERRED;
-      else
-	return TA_UNDEF;
+      switch (action)
+	{
+	/* TCP socket output buffer is full */
+	case TA_SOCKET_WRITE:
+	  return TA_SOCKET_WRITE_DEFERRED;
+
+	/* TUN device timed out on accepting write */
+	case TA_TUN_WRITE:
+	  return TA_TUN_WRITE_TIMEOUT;
+	}
+
+      return TA_UNDEF;
     }
 }
 
@@ -381,7 +395,7 @@ multi_tcp_dispatch (struct multi_context *m, struct multi_instance *mi, const in
   struct multi_instance *touched = mi;
   m->mpp_touched = &touched;
 
-  msg (D_MULTI_DEBUG, "MULTI TCP: multi_tcp_dispatch a=%s mi=" ptr_format,
+  dmsg (D_MULTI_DEBUG, "MULTI TCP: multi_tcp_dispatch a=%s mi=" ptr_format,
        pract(action),
        (ptr_type)mi);
 
@@ -411,6 +425,9 @@ multi_tcp_dispatch (struct multi_context *m, struct multi_instance *mi, const in
       break;
     case TA_TUN_WRITE:
       multi_process_outgoing_tun (m, mpp_flags);
+      break;
+    case TA_TUN_WRITE_TIMEOUT:
+      multi_process_drop_outgoing_tun (m, mpp_flags);      
       break;
     case TA_SOCKET_WRITE_READY:
       ASSERT (mi);
@@ -477,7 +494,7 @@ multi_tcp_post (struct multi_context *m, struct multi_instance *mi, const int ac
       }
     }
 
-  msg (D_MULTI_DEBUG, "MULTI TCP: multi_tcp_post %s -> %s",
+  dmsg (D_MULTI_DEBUG, "MULTI TCP: multi_tcp_post %s -> %s",
        pract(action),
        pract(newaction));
 
@@ -490,7 +507,7 @@ multi_tcp_action (struct multi_context *m, struct multi_instance *mi, int action
   bool tun_input_pending = false;
 
   do {
-    msg (D_MULTI_DEBUG, "MULTI TCP: multi_tcp_action a=%s p=%d",
+    dmsg (D_MULTI_DEBUG, "MULTI TCP: multi_tcp_action a=%s p=%d",
 	 pract(action),
 	 poll);
 
@@ -713,7 +730,7 @@ tunnel_server_tcp (struct context *top)
   init_management_callback_multi (&multi);
 
   /* finished with initialization */
-  initialization_sequence_completed (top, false);
+  initialization_sequence_completed (top, false); /* --mode server --proto tcp-server */
 
   /* per-packet event loop */
   enable_work_thread (&multi.top, &multi, tunnel_server_tcp_event_loop);

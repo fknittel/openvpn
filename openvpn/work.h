@@ -126,11 +126,11 @@ int work_thread_system (struct work_thread *wt,
 			const struct env_set *es,
 			const unsigned int flags);
 
-int work_thread_system_check (struct work_thread *wt,
-			      const char *command,
-			      const struct env_set *es,
-			      const unsigned int flags,
-			      const char *error_message);
+bool work_thread_system_check (struct work_thread *wt,
+			       const char *command,
+			       const struct env_set *es,
+			       const unsigned int flags,
+			       const char *error_message);
 
 int work_thread_plugin_call (struct work_thread *wt,
 			     const struct plugin_list *pl,

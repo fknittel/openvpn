@@ -30,6 +30,9 @@
 #endif
 
 #include "syshead.h"
+
+#ifdef ENABLE_FRAGMENT
+
 #include "misc.h"
 #include "fragment.h"
 #include "integer.h"
@@ -160,7 +163,7 @@ fragment_incoming (struct fragment_master *f, struct buffer *buf,
       /* handle the fragment type */
       if (frag_type == FRAG_WHOLE)
 	{
-	  msg (D_FRAG_DEBUG,
+	  dmsg (D_FRAG_DEBUG,
 	       "FRAG_IN buf->len=%d type=FRAG_WHOLE flags="
 	       fragment_header_format,
 	       buf->len,
@@ -180,7 +183,7 @@ fragment_incoming (struct fragment_master *f, struct buffer *buf,
 	  /* get the appropriate fragment buffer based on received seq_id */
 	  struct fragment *frag = fragment_list_get_buf (&f->incoming, seq_id);
 
-	  msg (D_FRAG_DEBUG,
+	  dmsg (D_FRAG_DEBUG,
 	       "FRAG_IN len=%d type=%d seq_id=%d frag_id=%d size=%d flags="
 	       fragment_header_format,
 	       buf->len,
@@ -200,7 +203,7 @@ fragment_incoming (struct fragment_master *f, struct buffer *buf,
 	      frag->defined = true;
 	      frag->max_frag_size = size;
 	      frag->map = 0;
-	      ASSERT (buf_init (&frag->buf, FRAME_HEADROOM (frame)));
+	      ASSERT (buf_init (&frag->buf, FRAME_HEADROOM_ADJ (frame, FRAME_HEADROOM_MARKER_FRAGMENT)));
 	    }
 
 	  /* copy the data to fragment buffer */
@@ -261,7 +264,7 @@ fragment_prepend_flags (struct buffer *buf,
        * If you want to set FRAG_EXTRA_MASK/FRAG_EXTRA_SHIFT bits,
        * do it here.
        */
-      msg (D_FRAG_DEBUG,
+      dmsg (D_FRAG_DEBUG,
 	   "FRAG_OUT len=%d type=%d seq_id=%d frag_id=%d frag_size=%d flags="
 	   fragment_header_format,
 	   buf->len, type, seq_id, frag_id, frag_size, flags);
@@ -270,7 +273,7 @@ fragment_prepend_flags (struct buffer *buf,
     {
       flags |= (((frag_size >> FRAG_SIZE_ROUND_SHIFT) & FRAG_SIZE_MASK) << FRAG_SIZE_SHIFT);
 
-      msg (D_FRAG_DEBUG,
+      dmsg (D_FRAG_DEBUG,
 	   "FRAG_OUT len=%d type=%d seq_id=%d frag_id=%d frag_size=%d flags="
 	   fragment_header_format,
 	   buf->len, type, seq_id, frag_id, frag_size, flags);
@@ -403,3 +406,7 @@ fragment_wakeup (struct fragment_master *f, struct frame *frame)
   /* delete fragments with expired TTLs */
   fragment_ttl_reap (f);
 }
+
+#else
+static void dummy(void) {}
+#endif

@@ -38,6 +38,7 @@
 #include "socket.h"
 #include "plugin.h"
 #include "manage.h"
+#include "proxy.h"
 
 /*
  * Maximum number of parameters associated with an option,
@@ -49,6 +50,7 @@ extern const char title_string[];
 
 #if P2MP
 
+#if P2MP_SERVER
 /* parameters to be pushed to peer */
 
 #define MAX_PUSH_LIST_LEN 1024 /* This parm is related to PLAINTEXT_BUFFER_SIZE in ssl.h */
@@ -57,6 +59,7 @@ struct push_list {
   /* newline delimited options, like config file */
   char options[MAX_PUSH_LIST_LEN];
 };
+#endif
 
 /* certain options are saved before --pull modifications are applied */
 struct options_pre_pull
@@ -135,9 +138,12 @@ struct options
 
   /* Advanced MTU negotiation and datagram fragmentation options */
   int mtu_discover_type; /* used if OS supports setting Path MTU discovery options on socket */
-  bool mtu_test;
 
-  int fragment;          /* internal fragmentation size */
+#ifdef ENABLE_OCC
+  bool mtu_test;
+#endif
+
+  int fragment;                 /* internal fragmentation size */
 
   bool mlock;
 
@@ -155,7 +161,9 @@ struct options
 # define PING_RESTART 2
   int ping_rec_timeout_action;  /* What action to take on ping_rec_timeout (exit or restart)? */
 
+#ifdef ENABLE_OCC
   int explicit_exit_notification;  /* Explicitly tell peer when we are exiting via OCC_EXIT message */
+#endif
 
   bool persist_tun;             /* Don't close/reopen TUN/TAP dev on SIGUSR1 or PING_RESTART */
   bool persist_local_ip;        /* Don't re-resolve local address on SIGUSR1 or PING_RESTART */
@@ -196,7 +204,10 @@ struct options
   int nice;
   int verbosity;
   int mute;
+
+#ifdef ENABLE_DEBUG
   int gremlin;
+#endif
 
   const char *status_file;
   int status_file_version;
@@ -223,20 +234,21 @@ struct options
   bool route_delay_defined;
   struct route_option_list *routes;
 
-  /* http proxy */
-  const char *http_proxy_server;
-  int http_proxy_port;
-  const char *http_proxy_auth_method;
-  const char *http_proxy_auth_file;
-  bool http_proxy_retry;
+#ifdef ENABLE_HTTP_PROXY
+  struct http_proxy_options *http_proxy_options;
+#endif
 
+#ifdef ENABLE_SOCKS
   /* socks proxy */
   const char *socks_proxy_server;
   int socks_proxy_port;
   bool socks_proxy_retry;
+#endif
 
+#ifdef ENABLE_OCC
   /* Enable options consistency check between peers */
   bool occ;
+#endif
 
 #ifdef ENABLE_MANAGEMENT
   const char *management_addr;
@@ -244,7 +256,9 @@ struct options
   const char *management_user_pass;
   int management_log_history_cache;
   int management_echo_buffer_size;
+  int management_state_buffer_size;
   bool management_query_passwords;
+  bool management_hold;
 #endif
 
 #ifdef ENABLE_PLUGIN
@@ -257,6 +271,8 @@ struct options
 #endif
 
 #if P2MP
+
+#if P2MP_SERVER
   bool server_defined;
   in_addr_t server_network;
   in_addr_t server_netmask;
@@ -267,11 +283,7 @@ struct options
   in_addr_t server_bridge_pool_start;
   in_addr_t server_bridge_pool_end;
 
-  bool client;
-
   struct push_list *push_list;
-  bool pull; /* client pull of config options from server */
-  struct options_pre_pull *pre_pull;
   bool ifconfig_pool_defined;
   in_addr_t ifconfig_pool_start;
   in_addr_t ifconfig_pool_end;
@@ -303,7 +315,14 @@ struct options
   bool username_as_common_name;
   const char *auth_user_pass_verify_script;
   bool auth_user_pass_verify_script_via_file;
+#endif
+
+  bool client;
+  bool pull; /* client pull of config options from server */
   const char *auth_user_pass_file;
+  struct options_pre_pull *pre_pull;
+
+  int scheduled_exit_interval;
 
 #endif
 
@@ -414,9 +433,16 @@ struct options
 
 #if P2MP
 #define PULL_DEFINED(opt) ((opt)->pull)
+#if P2MP_SERVER
 #define PUSH_DEFINED(opt) ((opt)->push_list)
-#else
+#endif
+#endif
+
+#ifndef PULL_DEFINED
 #define PULL_DEFINED(opt) (false)
+#endif
+
+#ifndef PUSH_DEFINED
 #define PUSH_DEFINED(opt) (false)
 #endif
 
@@ -438,11 +464,11 @@ struct options
 #define PLUGIN_OPTION_LIST(opt) (NULL)
 #endif
 
-void parse_argv (struct options* options,
-		 int argc,
+void parse_argv (struct options *options,
+		 const int argc,
 		 char *argv[],
-		 int msglevel,
-		 unsigned int permission_mask,
+		 const int msglevel,
+		 const unsigned int permission_mask,
 		 unsigned int *option_types_found,
 		 struct env_set *es);
 
@@ -458,6 +484,8 @@ void show_settings (const struct options *o);
 
 bool string_defined_equal (const char *s1, const char *s2);
 
+#ifdef ENABLE_OCC
+
 const char *options_string_version (const char* s, struct gc_arena *gc);
 
 char *options_string (const struct options *o,
@@ -470,6 +498,8 @@ int options_cmp_equal_safe (char *actual, const char *expected, size_t actual_n)
 void options_warning_safe (char *actual, const char *expected, size_t actual_n);
 int options_cmp_equal (char *actual, const char *expected);
 void options_warning (char *actual, const char *expected);
+
+#endif
 
 void options_postprocess (struct options *options, bool first_time);
 
@@ -498,6 +528,12 @@ void pre_pull_default (struct options *o);
 
 void rol_check_alloc (struct options *options);
 
-int parse_line (const char *line, char *p[], int n, const char *file, int line_num, int msglevel, struct gc_arena *gc);
+int parse_line (const char *line,
+		char *p[],
+		const int n,
+		const char *file,
+		const int line_num,
+		int msglevel,
+		struct gc_arena *gc);
 
 #endif

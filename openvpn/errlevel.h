@@ -69,6 +69,7 @@
 #define D_PUSH_ERRORS        LOGLEV(1, 11, M_NONFATAL)   /* show push/pull errors */
 #define D_PID_PERSIST        LOGLEV(1, 12, M_NONFATAL)   /* show packet_id persist errors */
 #define D_FRAG_ERRORS        LOGLEV(1, 13, M_NONFATAL)   /* show fragmentation errors */
+#define D_ALIGN_ERRORS       LOGLEV(1, 14, M_NONFATAL)   /* show bad struct alignments */
 
 #define D_HANDSHAKE          LOGLEV(2, 20, 0)        /* show data & control channel handshakes */
 #define D_MTU_INFO           LOGLEV(2, 21, 0)        /* show terse MTU info */
@@ -90,6 +91,7 @@
 #define D_MULTI_DROPPED      LOGLEV(3, 39, 0)        /* show point-to-multipoint packet drops */
 #define D_PLUGIN             LOGLEV(3, 40, 0)        /* show plugin calls */
 #define D_MANAGEMENT         LOGLEV(3, 41, 0)        /* show --management info */
+#define D_SCHED_EXIT         LOGLEV(3, 42, 0)        /* show arming of scheduled exit */
 
 #define D_SHOW_PARMS         LOGLEV(4, 50, 0)        /* show all parameters on program initiation */
 #define D_SHOW_OCC           LOGLEV(4, 51, 0)        /* show options compatibility string */
@@ -123,6 +125,8 @@
 #define D_TEST_FILE          LOGLEV(7, 70, M_DEBUG)  /* show test_file() calls */
 #define D_MANAGEMENT_DEBUG   LOGLEV(7, 70, M_DEBUG)  /* show --management debug info */
 #define D_PLUGIN_DEBUG       LOGLEV(7, 70, M_DEBUG)  /* show verbose plugin calls */
+#define D_SOCKET_DEBUG       LOGLEV(7, 70, M_DEBUG)  /* show socket.[ch] debugging info */
+#define D_ALIGN_DEBUG        LOGLEV(7, 70, M_DEBUG)  /* show verbose struct alignment info */
 
 #define D_HANDSHAKE_VERBOSE  LOGLEV(8, 70, M_DEBUG)  /* show detailed description of each handshake */
 #define D_TLS_DEBUG_MED      LOGLEV(8, 70, M_DEBUG)  /* limited info from tls_session routines */

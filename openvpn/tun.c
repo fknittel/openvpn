@@ -44,8 +44,13 @@
 #include "common.h"
 #include "misc.h"
 #include "socket.h"
+#include "manage.h"
 
 #include "memdbg.h"
+
+#ifdef TARGET_SOLARIS
+static void solaris_error_close (struct tuntap *tt, const struct env_set *es, const char *actual);
+#endif
 
 bool
 is_dev_type (const char *dev, const char *dev_type, const char *match_type)
@@ -526,6 +531,17 @@ do_ifconfig (struct tuntap *tt,
       if (!tun)
 	ifconfig_broadcast = print_in_addr_t (tt->broadcast, 0, &gc);
 
+#ifdef ENABLE_MANAGEMENT
+  if (management)
+    {
+      management_set_state (management,
+			    OPENVPN_STATE_ASSIGN_IP,
+			    NULL,
+			    tt->local);
+    }
+#endif
+
+
 #if defined(TARGET_LINUX)
 #ifdef CONFIG_FEATURE_IPROUTE
 	/*
@@ -589,28 +605,37 @@ do_ifconfig (struct tuntap *tt,
 #endif /*CONFIG_FEATURE_IPROUTE*/
 #elif defined(TARGET_SOLARIS)
 
-      /* example: ifconfig tun2 10.2.0.2 10.2.0.1 mtu 1450 netmask 255.255.255.255 up */
+      /* Solaris 2.6 (and 7?) cannot set all parameters in one go...
+       * example:
+       *    ifconfig tun2 10.2.0.2 10.2.0.1 mtu 1450 up
+       *    ifconfig tun2 netmask 255.255.255.255
+       */
       if (tun)
-	openvpn_snprintf (command_line, sizeof (command_line),
-			  IFCONFIG_PATH " %s %s %s mtu %d netmask 255.255.255.255 up",
-			  actual,
-			  ifconfig_local,
-			  ifconfig_remote_netmask,
-			  tun_mtu
-			  );
-      else
-	no_tap_ifconfig ();
-      msg (M_INFO, "%s", command_line);
-      if (!system_check (command_line, es, 0, "Solaris ifconfig failed"))
 	{
 	  openvpn_snprintf (command_line, sizeof (command_line),
-			    IFCONFIG_PATH " %s unplumb",
+			    IFCONFIG_PATH " %s %s %s mtu %d up",
+			    actual,
+			    ifconfig_local,
+			    ifconfig_remote_netmask,
+			    tun_mtu
+			    );
+
+	  msg (M_INFO, "%s", command_line);
+	  if (!system_check (command_line, es, 0, "Solaris ifconfig phase-1 failed"))
+	    solaris_error_close (tt, es, actual);
+
+	  openvpn_snprintf (command_line, sizeof (command_line),
+			    IFCONFIG_PATH " %s netmask 255.255.255.255",
 			    actual
 			    );
-	  msg (M_INFO, "%s", command_line);
-	  system_check (command_line, es, 0, "Solaris ifconfig unplumb failed");
-	  msg (M_FATAL, "ifconfig failed");
 	}
+      else
+	no_tap_ifconfig ();
+
+      msg (M_INFO, "%s", command_line);
+      if (!system_check (command_line, es, 0, "Solaris ifconfig phase-2 failed"))
+	solaris_error_close (tt, es, actual);
+
       tt->did_ifconfig = true;
 
 #elif defined(TARGET_OPENBSD)
@@ -1234,39 +1259,69 @@ open_tun (const char *dev, const char *dev_type, const char *dev_node, bool ipv6
   msg (M_INFO, "TUN/TAP device %s opened", tt->actual_name);
 }
 
+static void
+solaris_close_tun (struct tuntap *tt)
+{
+  if (tt)
+    {
+      if (tt->ip_fd >= 0)
+	{
+	  struct ifreq ifr;
+	  CLEAR (ifr);
+	  strncpynt (ifr.ifr_name, tt->actual_name, sizeof (ifr.ifr_name));
+
+	  if (ioctl (tt->ip_fd, SIOCGIFFLAGS, &ifr) < 0)
+	    msg (M_WARN | M_ERRNO, "Can't get iface flags");
+
+	  if (ioctl (tt->ip_fd, SIOCGIFMUXID, &ifr) < 0)
+	    msg (M_WARN | M_ERRNO, "Can't get multiplexor id");
+
+	  if (ioctl (tt->ip_fd, I_PUNLINK, ifr.ifr_ip_muxid) < 0)
+	    msg (M_WARN | M_ERRNO, "Can't unlink interface");
+
+	  close (tt->ip_fd);
+	  tt->ip_fd = -1;
+	}
+
+      if (tt->fd >= 0)
+	{
+	  close (tt->fd);
+	  tt->fd = -1;
+	}
+    }
+}
+
 /*
  * Close TUN device. 
  */
 void
 close_tun (struct tuntap *tt)
 {
-  if (tt && tt->fd >= 0)
-    {
-      struct ifreq ifr;
-
-      CLEAR (ifr);
-      strncpynt (ifr.ifr_name, tt->actual_name, sizeof (ifr.ifr_name));
-
-     if (ioctl (tt->ip_fd, SIOCGIFFLAGS, &ifr) < 0)
-	msg (M_WARN | M_ERRNO, "Can't get iface flags");
-
-      if (ioctl (tt->ip_fd, SIOCGIFMUXID, &ifr) < 0)
-	msg (M_WARN | M_ERRNO, "Can't get multiplexor id");
-
-      if (ioctl (tt->ip_fd, I_PUNLINK, ifr.ifr_ip_muxid) < 0)
-	msg (M_WARN | M_ERRNO, "Can't unlink interface");
-
-      close (tt->ip_fd);
-      close (tt->fd);
-    }
   if (tt)
     {
+      solaris_close_tun (tt);
+
       if (tt->actual_name)
 	free (tt->actual_name);
       
       clear_tuntap (tt);
       free (tt);
     }
+}
+
+static void
+solaris_error_close (struct tuntap *tt, const struct env_set *es, const char *actual)
+{
+  char command_line[256];
+
+  openvpn_snprintf (command_line, sizeof (command_line),
+		    IFCONFIG_PATH " %s unplumb",
+		    actual);
+
+  msg (M_INFO, "%s", command_line);
+  system_check (command_line, es, 0, "Solaris ifconfig unplumb failed");
+  close_tun (tt);
+  msg (M_FATAL, "Solaris ifconfig failed");
 }
 
 int
@@ -1569,7 +1624,7 @@ tun_read_queue (struct tuntap *tt, int maxsize)
 	  tt->reads.iostate = IOSTATE_IMMEDIATE_RETURN;
 	  tt->reads.status = 0;
 
-	  msg (D_WIN32_IO, "WIN32 I/O: TAP Read immediate return [%d,%d]",
+	  dmsg (D_WIN32_IO, "WIN32 I/O: TAP Read immediate return [%d,%d]",
 	       (int) len,
 	       (int) tt->reads.size);	       
 	}
@@ -1580,7 +1635,7 @@ tun_read_queue (struct tuntap *tt, int maxsize)
 	    {
 	      tt->reads.iostate = IOSTATE_QUEUED;
 	      tt->reads.status = err;
-	      msg (D_WIN32_IO, "WIN32 I/O: TAP Read queued [%d]",
+	      dmsg (D_WIN32_IO, "WIN32 I/O: TAP Read queued [%d]",
 		   (int) len);
 	    }
 	  else /* error occurred */
@@ -1589,7 +1644,7 @@ tun_read_queue (struct tuntap *tt, int maxsize)
 	      ASSERT (SetEvent (tt->reads.overlapped.hEvent));
 	      tt->reads.iostate = IOSTATE_IMMEDIATE_RETURN;
 	      tt->reads.status = err;
-	      msg (D_WIN32_IO, "WIN32 I/O: TAP Read error [%d] : %s",
+	      dmsg (D_WIN32_IO, "WIN32 I/O: TAP Read error [%d] : %s",
 		   (int) len,
 		   strerror_win32 (status, &gc));
 	      gc_free (&gc);
@@ -1632,7 +1687,7 @@ tun_write_queue (struct tuntap *tt, struct buffer *buf)
 
 	  tt->writes.status = 0;
 
-	  msg (D_WIN32_IO, "WIN32 I/O: TAP Write immediate return [%d,%d]",
+	  dmsg (D_WIN32_IO, "WIN32 I/O: TAP Write immediate return [%d,%d]",
 	       BLEN (&tt->writes.buf),
 	       (int) tt->writes.size);	       
 	}
@@ -1643,7 +1698,7 @@ tun_write_queue (struct tuntap *tt, struct buffer *buf)
 	    {
 	      tt->writes.iostate = IOSTATE_QUEUED;
 	      tt->writes.status = err;
-	      msg (D_WIN32_IO, "WIN32 I/O: TAP Write queued [%d]",
+	      dmsg (D_WIN32_IO, "WIN32 I/O: TAP Write queued [%d]",
 		   BLEN (&tt->writes.buf));
 	    }
 	  else /* error occurred */
@@ -1652,7 +1707,7 @@ tun_write_queue (struct tuntap *tt, struct buffer *buf)
 	      ASSERT (SetEvent (tt->writes.overlapped.hEvent));
 	      tt->writes.iostate = IOSTATE_IMMEDIATE_RETURN;
 	      tt->writes.status = err;
-	      msg (D_WIN32_IO, "WIN32 I/O: TAP Write error [%d] : %s",
+	      dmsg (D_WIN32_IO, "WIN32 I/O: TAP Write error [%d] : %s",
 		   BLEN (&tt->writes.buf),
 		   strerror_win32 (err, &gc));
 	      gc_free (&gc);
@@ -1688,7 +1743,7 @@ tun_finalize (
 	  ret = io->size;
 	  io->iostate = IOSTATE_INITIAL;
 	  ASSERT (ResetEvent (io->overlapped.hEvent));
-	  msg (D_WIN32_IO, "WIN32 I/O: TAP Completion success [%d]", ret);
+	  dmsg (D_WIN32_IO, "WIN32 I/O: TAP Completion success [%d]", ret);
 	}
       else
 	{
@@ -1721,14 +1776,14 @@ tun_finalize (
 	  if (buf)
 	    *buf = io->buf;
 	  ret = io->size;
-	  msg (D_WIN32_IO, "WIN32 I/O: TAP Completion non-queued success [%d]", ret);
+	  dmsg (D_WIN32_IO, "WIN32 I/O: TAP Completion non-queued success [%d]", ret);
 	}
       break;
 
     case IOSTATE_INITIAL: /* were we called without proper queueing? */
       SetLastError (ERROR_INVALID_FUNCTION);
       ret = -1;
-      msg (D_WIN32_IO, "WIN32 I/O: TAP Completion BAD STATE");
+      dmsg (D_WIN32_IO, "WIN32 I/O: TAP Completion BAD STATE");
       break;
 
     default:
@@ -1798,7 +1853,7 @@ get_tap_reg (struct gc_arena *gc)
 			    &unit_key);
 
       if (status != ERROR_SUCCESS)
-	msg (D_REGISTRY, "Error opening registry key: %s", unit_string);
+	dmsg (D_REGISTRY, "Error opening registry key: %s", unit_string);
       else
 	{
 	  len = sizeof (component_id);
@@ -1811,7 +1866,7 @@ get_tap_reg (struct gc_arena *gc)
 				   &len);
 
 	  if (status != ERROR_SUCCESS || data_type != REG_SZ)
-	    msg (D_REGISTRY, "Error opening registry key: %s\\%s",
+	    dmsg (D_REGISTRY, "Error opening registry key: %s\\%s",
 		 unit_string, component_id_string);
 	  else
 	    {	      
@@ -1907,7 +1962,7 @@ get_panel_reg (struct gc_arena *gc)
 			    &connection_key);
 
       if (status != ERROR_SUCCESS)
-	msg (D_REGISTRY, "Error opening registry key: %s", connection_string);
+	dmsg (D_REGISTRY, "Error opening registry key: %s", connection_string);
       else
 	{
 	  len = sizeof (name_data);
@@ -1920,7 +1975,7 @@ get_panel_reg (struct gc_arena *gc)
 				   &len);
 
 	  if (status != ERROR_SUCCESS || name_type != REG_SZ)
-	    msg (D_REGISTRY, "Error opening registry key: %s\\%s\\%s",
+	    dmsg (D_REGISTRY, "Error opening registry key: %s\\%s\\%s",
 		 NETWORK_CONNECTIONS_KEY, connection_string, name_string);
 	  else
 	    {
@@ -2553,7 +2608,7 @@ adapter_index_of_ip (const IP_ADAPTER_INFO *list, const in_addr_t ip, int *count
       list = list->Next;
     }
 
-  msg (D_ROUTE_DEBUG, "DEBUG: IP Locate: ip=%s nm=%s index=%d count=%d",
+  dmsg (D_ROUTE_DEBUG, "DEBUG: IP Locate: ip=%s nm=%s index=%d count=%d",
        print_in_addr_t (ip, 0, &gc),
        print_in_addr_t (highest_netmask, 0, &gc),
        (int)ret,
@@ -2840,6 +2895,18 @@ build_dhcp_options_string (struct buffer *buf, const struct tuntap_options *o)
   write_dhcp_u32_array (buf, 44, (uint32_t*)o->wins, o->wins_len);
   write_dhcp_u32_array (buf, 42, (uint32_t*)o->ntp, o->ntp_len);
   write_dhcp_u32_array (buf, 45, (uint32_t*)o->nbdd, o->nbdd_len);
+
+  /* the MS DHCP server option 'Disable Netbios-over-TCP/IP
+     is implemented as vendor option 001, value 002.
+     A value of 001 means 'leave NBT alone' which is the default */
+  if (o->disable_nbt)
+  {
+    buf_write_u8 (buf, 43);
+    buf_write_u8 (buf,  6);  /* total length field */
+    buf_write_u8 (buf,  0x001);
+    buf_write_u8 (buf,  4);  /* length of the vendor specified field */
+    buf_write_u32 (buf, 0x002);
+  }
 }
 
 void
@@ -3243,20 +3310,20 @@ close_tun (struct tuntap *tt)
 
       if (tt->hand != NULL)
 	{
-	  msg (D_WIN32_IO_LOW, "Attempting CancelIO on TAP-Win32 adapter");
+	  dmsg (D_WIN32_IO_LOW, "Attempting CancelIO on TAP-Win32 adapter");
 	  if (!CancelIo (tt->hand))
 	    msg (M_WARN | M_ERRNO, "Warning: CancelIO failed on TAP-Win32 adapter");
 	}
 
-      msg (D_WIN32_IO_LOW, "Attempting close of overlapped read event on TAP-Win32 adapter");
+      dmsg (D_WIN32_IO_LOW, "Attempting close of overlapped read event on TAP-Win32 adapter");
       overlapped_io_close (&tt->reads);
 
-      msg (D_WIN32_IO_LOW, "Attempting close of overlapped write event on TAP-Win32 adapter");
+      dmsg (D_WIN32_IO_LOW, "Attempting close of overlapped write event on TAP-Win32 adapter");
       overlapped_io_close (&tt->writes);
 
       if (tt->hand != NULL)
 	{
-	  msg (D_WIN32_IO_LOW, "Attempting CloseHandle on TAP-Win32 adapter");
+	  dmsg (D_WIN32_IO_LOW, "Attempting CloseHandle on TAP-Win32 adapter");
 	  if (!CloseHandle (tt->hand))
 	    msg (M_WARN | M_ERRNO, "Warning: CloseHandle failed on TAP-Win32 adapter");
 	}

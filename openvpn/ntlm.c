@@ -29,8 +29,6 @@
 
 #if NTLM
 
-#include <openssl/des.h>
-#include <openssl/md4.h>
 #include "common.h"
 #include "buffer.h"
 #include "misc.h"
@@ -39,8 +37,9 @@
 #include "proxy.h"
 #include "ntlm.h"
 #include "base64.h"
-#include "memdbg.h"
+#include "crypto.h"
 
+#include "memdbg.h"
 
 static void
 create_des_keys(const unsigned char *hash, unsigned char *key)
@@ -184,4 +183,6 @@ ntlm_phase_3 (const struct http_proxy_info *p, const char *phase_2, struct gc_ar
   return (make_base64_string2 (phase3, buflen, gc));
 }
 
+#else
+static void dummy(void) {}
 #endif

@@ -25,32 +25,38 @@ dnl Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.50)
 
-AC_INIT([OpenVPN], [2.0_beta18mt], [openvpn-users@lists.sourceforge.net], [openvpn])
+AC_INIT([OpenVPN], [2.0_rc6aMT], [openvpn-users@lists.sourceforge.net], [openvpn])
 AM_CONFIG_HEADER(config.h)
 AC_CONFIG_SRCDIR(syshead.h)
 
 AC_ARG_ENABLE(lzo,
-   [  --disable-lzo           Do not compile LZO compression support],
+   [  --disable-lzo           Disable LZO compression support],
    [LZO="$enableval"],
    [LZO="yes"]
 )
 
 AC_ARG_ENABLE(crypto,
-   [  --disable-crypto        Do not compile OpenSSL crypto support],
+   [  --disable-crypto        Disable OpenSSL crypto support],
    [CRYPTO="$enableval"],
    [CRYPTO="yes"]
 )
 
 AC_ARG_ENABLE(ssl,
-   [  --disable-ssl           Do not compile OpenSSL SSL support for TLS-based key exchange],
+   [  --disable-ssl           Disable OpenSSL SSL support for TLS-based key exchange],
    [SSL="$enableval"],
    [SSL="yes"]
 )
 
-AC_ARG_ENABLE(pthread,
-   [  --enable-pthread        Compile pthread support],
-   [PTHREAD="$enableval"],
-   [PTHREAD="no"]
+AC_ARG_ENABLE(multi,
+   [  --disable-multi         Disable client/server support (--mode server + client mode)],
+   [MULTI="$enableval"],
+   [MULTI="yes"]
+)
+
+AC_ARG_ENABLE(server,
+   [  --disable-server        Disable server support only (but retain client support)],
+   [MULTI_SERVER="$enableval"],
+   [MULTI_SERVER="yes"]
 )
 
 AC_ARG_ENABLE(plugins,
@@ -65,26 +71,67 @@ AC_ARG_ENABLE(management,
    [MANAGEMENT="yes"]
 )
 
-AC_ARG_ENABLE(multi,
-   [  --disable-multi         Do not compile multi-client server support (--mode server)],
-   [MULTI="$enableval"],
-   [MULTI="yes"]
+AC_ARG_ENABLE(socks,
+   [  --disable-socks         Disable Socks support],
+   [SOCKS="$enableval"],
+   [SOCKS="yes"]
+)
+
+AC_ARG_ENABLE(http,
+   [  --disable-http          Disable HTTP proxy support],
+   [HTTP_PROXY="$enableval"],
+   [HTTP_PROXY="yes"]
+)
+
+AC_ARG_ENABLE(fragment,
+   [  --disable-fragment      Disable internal fragmentation support (--fragment)],
+   [FRAGMENT="$enableval"],
+   [FRAGMENT="yes"]
+)
+
+AC_ARG_ENABLE(debug,
+   [  --disable-debug         Disable debugging support (disable gremlin and verb 7+ messages)],
+   [DEBUG="$enableval"],
+   [DEBUG="yes"]
+)
+
+AC_ARG_ENABLE(small,
+   [  --enable-small          Enable smaller executable size (disable OCC, usage message, and verb 4 parm list)],
+   [SMALL="$enableval"],
+   [SMALL="no"]
+)
+
+AC_ARG_ENABLE(pthread,
+   [  --enable-pthread        Enable pthread support (Experimental for OpenVPN 2.0)],
+   [PTHREAD="$enableval"],
+   [PTHREAD="no"]
+)
+
+AC_ARG_ENABLE(password-save,
+   [  --enable-password-save  Allow --askpass and --auth-user-pass passwords to be read from a file],
+   [PASSWORD_SAVE="$enableval"],
+   [PASSWORD_SAVE="no"]
+)
+
+AC_ARG_ENABLE(iproute2,
+   [  --enable-iproute2       Enable support for iproute2],
+   AC_DEFINE(CONFIG_FEATURE_IPROUTE, 1, [enable iproute2 support])   
 )
 
 AC_ARG_ENABLE(strict,
-   [  --enable-strict         Enable strict compiler warnings],
+   [  --enable-strict         Enable strict compiler warnings (debugging option)],
    [STRICT="$enableval"],
    [STRICT="no"]
 )
 
 AC_ARG_ENABLE(profiling,
-   [  --enable-profiling      Enable profiling],
+   [  --enable-profiling      Enable profiling (debugging option)],
    [PROFILE="$enableval"],
    [PROFILE="no"]
 )
 
 AC_ARG_ENABLE(strict-options,
-   [  --enable-strict-options Enable strict options check between peers],
+   [  --enable-strict-options Enable strict options check between peers (debugging option)],
    [STRICT_OPTIONS="$enableval"],
    [STRICT_OPTIONS="no"]
 )
@@ -137,13 +184,6 @@ AC_ARG_WITH(mem-check,
    [  --with-mem-check=TYPE  Build with debug memory checking, TYPE = dmalloc or valgrind],
    [MEMCHECK="$withval"]
 )
-
-AC_ARG_ENABLE(iproute2,
-   [  --enable-iproute2       Enable support for iproute2],
-   AC_DEFINE(CONFIG_FEATURE_IPROUTE, 1, [enable iproute2 support])
-   
-)
-
 
 dnl Guess host type.
 AC_CANONICAL_HOST
@@ -311,8 +351,7 @@ AC_CHECK_FUNCS(daemon chroot getpwnam setuid nice system getpid dup dup2 dnl
 	       getpass strerror syslog openlog mlockall getgrnam setgid dnl
 	       setgroups stat flock readv writev setsockopt getsockopt dnl
 	       setsid chdir gettimeofday putenv getpeername unlink dnl
-               poll epoll_create chsize ftruncate)
-AC_REPLACE_FUNCS(inet_aton)
+               poll chsize ftruncate)
 AC_CACHE_SAVE
 
 dnl Required library functions
@@ -326,6 +365,13 @@ AC_CHECK_FUNCS(socket recv recvfrom send sendto listen dnl
 dnl
 dnl check libraries
 dnl
+
+dnl Checking for a working epoll
+AC_CHECKING([for working epoll implementation])
+OLDLDFLAGS="$LDFLAGS"
+LDFLAGS="$LDFLAGS -Wl,--fatal-warnings"
+AC_CHECK_FUNCS(epoll_create, AC_DEFINE([HAVE_EPOLL_CREATE], 1, []))
+LDFLAGS="$OLDLDFLAGS"
 
 dnl
 dnl check for valgrind tool
@@ -496,12 +542,42 @@ fi
 
 dnl enable multi-client mode
 if test "$MULTI" = "yes"; then
-   AC_DEFINE(MULTICLIENT_SERVER_ENABLED, 1, [Enable multiclient server capability])
+   AC_DEFINE(ENABLE_CLIENT_SERVER, 1, [Enable client/server capability])
+fi
+
+dnl enable client mode only, not server
+if test "$MULTI_SERVER" = "no"; then
+   AC_DEFINE(ENABLE_CLIENT_ONLY, 1, [Enable client capability only])
 fi
 
 dnl enable management server capability
 if test "$MANAGEMENT" = "yes"; then
    AC_DEFINE(ENABLE_MANAGEMENT, 1, [Enable management server capability])
+fi
+
+dnl enable socks 
+if test "$SOCKS" = "yes"; then
+   AC_DEFINE(ENABLE_SOCKS, 1, [Enable Socks proxy support])
+fi
+
+dnl enable HTTP proxy
+if test "$HTTP_PROXY" = "yes"; then
+   AC_DEFINE(ENABLE_HTTP_PROXY, 1, [Enable HTTP proxy support])
+fi
+
+dnl enable debugging
+if test "$DEBUG" = "yes"; then
+   AC_DEFINE(ENABLE_DEBUG, 1, [Enable debugging support])
+fi
+
+dnl enable small size optimizations
+if test "$SMALL" = "yes"; then
+   AC_DEFINE(ENABLE_SMALL, 1, [Enable smaller executable size])
+fi
+
+dnl enable --fragment
+if test "$FRAGMENT" = "yes"; then
+   AC_DEFINE(ENABLE_FRAGMENT, 1, [Enable internal fragmentation support])
 fi
 
 dnl enable strict compiler warnings
@@ -517,6 +593,11 @@ fi
 dnl enable strict options check between peers
 if test "$STRICT_OPTIONS" = "yes"; then
    AC_DEFINE(STRICT_OPTIONS_CHECK, 1, [Enable strict options check between peers])
+fi
+
+dnl enable password save
+if test "$PASSWORD_SAVE" = "yes"; then
+   AC_DEFINE(ENABLE_PASSWORD_SAVE, 1, [Allow --askpass and --auth-user-pass passwords to be read from a file])
 fi
 
 AC_OUTPUT(Makefile openvpn.spec config-win32.h install-win32/openvpn.nsi)
