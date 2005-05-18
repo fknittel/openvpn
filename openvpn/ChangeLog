@@ -3,9 +3,13 @@ Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
 
 $Id$
 
-2005.02.17 -- Version 2.0_rc14aMT
+2005.05.18 -- Version 2.0-rc16MT
 
-* Merged with 2.0_rc14a.
+* Merged with 2.0-rc16.
+
+2005.02.17 -- Version 2.0-rc14aMT
+
+* Merged with 2.0-rc14a.
 	
 2005.01.18 -- Version 2.0-rc8MT
 
@@ -16,10 +20,22 @@ $Id$
 
 * Merged with 2.0-rc6a.
 
-2005.02.xx -- Version 2.0-rc15
+2005.02.20 -- Version 2.0-rc16
+
+* Fixed bug introduced in rc13 where Windows service wrapper
+  would be installed with a startup type of Automatic.
+  This fix restores the previous behavior of installing
+  with a startup type of Manual.
+
+2005.02.19 -- Version 2.0-rc15
 
 * Added warning when --keepalive is not used in a server
   configuration.
+* Don't include OpenSSL md4.h file if we are not building
+  NTLM proxy support (Waldemar Brodkorb).
+* Added easy-rsa/build-key-pkcs12 and
+  easy-rsa/Windows/build-key-pkcs12.bat scripts
+  (Mathias Sundman).
 
 2005.02.16 -- Version 2.0-rc14
 

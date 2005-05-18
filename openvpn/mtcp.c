@@ -420,9 +420,20 @@ multi_tcp_dispatch (struct multi_context *m, struct multi_instance *mi, const in
       set_prefix (mi);
       read_incoming_link (&mi->context);
       clear_prefix ();
+
+#if 1
+      if (!IS_SIG (&mi->context)) // JYFIXME
+	{
+	  multi_process_incoming_link (m, mi, mpp_flags);
+	  if (!IS_SIG (&mi->context))
+	    stream_buf_read_setup (mi->context.c2.link_socket);
+	}
+#else
       if (!IS_SIG (&mi->context))
-	multi_process_incoming_link (m, mi, mpp_flags | MPP_CALL_STREAM_BUF_READ_SETUP); /* THREAD */
+	multi_process_incoming_link (m, mi, mpp_flags | MPP_CALL_STREAM_BUF_READ_SETUP); /* JYFIXME -- THREAD */
+#endif
       break;
+
     case TA_TIMEOUT:
       multi_process_timeout (m, mpp_flags); /* THREAD */
       break;
@@ -591,9 +602,9 @@ multi_tcp_process_io (struct multi_context *m)
   struct multi_tcp *mtcp = m->mtcp;
   int i;
 
-  multi_event_loop_reentered_reset (m);
+  multi_event_loop_reentered_reset (m); // JYFIXME
 
-  for (i = 0; i < mtcp->n_esr && !multi_event_loop_reentered (m); ++i)
+  for (i = 0; i < mtcp->n_esr && !multi_event_loop_reentered (m); ++i) // JYFIXME
     {
       struct event_set_return *e = &mtcp->esr[i];
 
@@ -654,7 +665,7 @@ multi_tcp_process_io (struct multi_context *m)
   /*
    * Process queued mbuf packets destined for TCP socket
    */
-  if (!multi_event_loop_reentered (m)) {
+  if (!multi_event_loop_reentered (m)) { // JYFIXME
     struct multi_instance *mi;
     while (!IS_SIG (&m->top) && (mi = (struct multi_instance *) mbuf_peek (m->mbuf)) != NULL)
       {

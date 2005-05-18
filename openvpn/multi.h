@@ -110,7 +110,7 @@ struct multi_context {
   struct multi_instance **mpp_touched;
 
 #ifdef USE_PTHREAD
-  bool event_loop_reentered;
+  bool event_loop_reentered; // JYFIXME
   struct thread_context thread_context;
 #endif
 
@@ -180,7 +180,7 @@ bool multi_process_timeout (struct multi_context *m, const unsigned int mpp_flag
 #define MPP_CONDITIONAL_PRE_SELECT     (1<<1)
 #define MPP_CLOSE_ON_SIGNAL            (1<<2)
 #define MPP_RECORD_TOUCH               (1<<3)
-#define MPP_CALL_STREAM_BUF_READ_SETUP (1<<4)
+#define MPP_CALL_STREAM_BUF_READ_SETUP (1<<4) // JYFIXME
 #define MPP_FORCE_PRE_SELECT           (1<<5)
 
 bool multi_process_post (struct multi_context *m, struct multi_instance *mi, const unsigned int flags);
@@ -226,8 +226,8 @@ multi_instance_ref (struct multi_instance *mi, const int thread_level)
   return multi_instance_ready (mi, thread_level) ? mi : NULL;
 }
 
-static inline void
-multi_event_loop_reentered_reset (struct multi_context *m)
+static inline void 
+multi_event_loop_reentered_reset (struct multi_context *m) // JYFIXME
 {
 #ifdef USE_PTHREAD
   m->event_loop_reentered = false;
@@ -235,7 +235,7 @@ multi_event_loop_reentered_reset (struct multi_context *m)
 }
 
 static inline bool
-multi_event_loop_reentered (struct multi_context *m)
+multi_event_loop_reentered (struct multi_context *m) // JYFIXME
 {
 #ifdef USE_PTHREAD
   return m->event_loop_reentered;

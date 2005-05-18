@@ -1835,8 +1835,10 @@ multi_process_post (struct multi_context *m, struct multi_instance *mi, const un
 {
   bool ret = true;
 
+#if 0 // JYFIXME
   if (flags & MPP_CALL_STREAM_BUF_READ_SETUP)
     stream_buf_read_setup (mi->context.c2.link_socket);
+#endif
 
   if (!IS_SIG (&mi->context) && ((flags & MPP_FORCE_PRE_SELECT) || !ANY_OUT (&mi->context)))
     {
@@ -1848,7 +1850,7 @@ multi_process_post (struct multi_context *m, struct multi_instance *mi, const un
 
       /* figure timeouts and fetch possible outgoing
 	 to_link packets (such as ping or TLS control) */
-      pre_select (&mi->context); /* THREAD-SSL */
+      pre_select (&mi->context); /* THREAD-CALL */
 
       if (!IS_SIG (&mi->context))
 	{
@@ -1865,7 +1867,7 @@ multi_process_post (struct multi_context *m, struct multi_instance *mi, const un
 	  /* connection is "established" when SSL/TLS key negotiation succeeds
 	     and (if specified) auth user/pass succeeds */
 	  if (!mi->connection_established_flag && CONNECTION_ESTABLISHED (&mi->context))
-	    multi_connection_established (m, mi);
+	    multi_connection_established (m, mi); /* THREAD-CALL */
 	}
     }
 
@@ -2209,12 +2211,16 @@ multi_process_timeout (struct multi_context *m, const unsigned int mpp_flags)
   printf ("%s -> TIMEOUT\n", id(m->earliest_wakeup));
 #endif
 
-  ASSERT (multi_instance_ready (m->earliest_wakeup, TL_LIGHT));
+  /* instance marked for wakeup? */
+  if (m->earliest_wakeup)
+    {
+      ASSERT (multi_instance_ready (m->earliest_wakeup, TL_LIGHT));
 
-  set_prefix (m->earliest_wakeup);
-  ret = multi_process_post (m, m->earliest_wakeup, (mpp_flags | MPP_FORCE_PRE_SELECT));
-  m->earliest_wakeup = NULL;
-  clear_prefix ();
+      set_prefix (m->earliest_wakeup);
+      ret = multi_process_post (m, m->earliest_wakeup, (mpp_flags | MPP_FORCE_PRE_SELECT));
+      m->earliest_wakeup = NULL;
+      clear_prefix ();
+    }
 
   return ret;
 }
