@@ -8,6 +8,9 @@
 # Disable PAM plugin
 #   rpmbuild -tb [openvpn.x.tar.gz] --define 'without_pam 1'
 #
+# Allow passwords to be read from files
+#   rpmbuild -tb [openvpn.x.tar.gz] --define 'with_password_save 1'
+#
 # Use this on RH9 and RHEL3
 #   rpmbuild -tb [openvpn.x.tar.gz] --define 'with_kerberos 1'
 
@@ -33,8 +36,18 @@ AutoReq: 0
 BuildRequires: openssl-devel >= 0.9.6
 Requires:      openssl       >= 0.9.6
 
+%if "%{_vendor}" == "Mandrakesoft"
+%{!?without_lzo:BuildRequires: liblzo1-devel >= 1.07}
+%{!?without_lzo:Requires:      liblzo1       >= 1.07}
+%else
+%if "%{_vendor}" == "MandrakeSoft"
+%{!?without_lzo:BuildRequires: liblzo1-devel >= 1.07}
+%{!?without_lzo:Requires:      liblzo1       >= 1.07}
+%else
 %{!?without_lzo:BuildRequires: lzo-devel >= 1.07}
 %{!?without_lzo:Requires:      lzo       >= 1.07}
+%endif
+%endif
 
 %{!?without_pam:BuildRequires: pam-devel}
 %{!?without_pam:Requires:      pam}
@@ -83,7 +96,7 @@ and portability to most major OS platforms.
 %setup -q
 
 %build
-%configure --disable-dependency-tracking %{?without_lzo:--disable-lzo} %{?with_kerberos:--with-ssl-headers=/usr/kerberos/include}
+%configure --disable-dependency-tracking %{?with_password_save:--enable-password-save} %{?without_lzo:--disable-lzo} %{?with_kerberos:--with-ssl-headers=/usr/kerberos/include}
 %__make
 %__strip %{name}
 
@@ -133,24 +146,19 @@ popd
 #
 
 %__mkdir_p %{buildroot}%{_datadir}/%{name}
-%__cp -pr contrib easy-rsa sample-{config-file,key,script}s management %{buildroot}%{_datadir}/%{name}
 
 #
 # Install the plugins
 #
 
 %__mkdir_p %{buildroot}%{_datadir}/%{name}/plugin/lib
-%__mkdir_p %{buildroot}%{_datadir}/%{name}/plugin/doc
 
-# Install down-root
-%__install -c -m 755 plugin/down-root/openvpn-down-root.so %{buildroot}%{_datadir}/%{name}/plugin/lib
-%__cp -p plugin/down-root/README %{buildroot}%{_datadir}/%{name}/plugin/doc/down-root.txt
+for pi in auth-pam down-root; do
+  %__mv -f plugin/$pi/README plugin/README.$pi
+  %__install -c -m 755 plugin/$pi/openvpn-$pi.so %{buildroot}%{_datadir}/openvpn/plugin/lib/openvpn-$pi.so
+done
 
-# Install auth-pam
-%if %{build_auth_pam}
-%__install -c -m 755 plugin/auth-pam/openvpn-auth-pam.so %{buildroot}%{_datadir}/%{name}/plugin/lib
-%__cp -p plugin/auth-pam/README %{buildroot}%{_datadir}/%{name}/plugin/doc/auth-pam.txt
-%endif
+%__mv -f plugin/README plugin/README.plugins
 
 #
 # Clean section
@@ -198,7 +206,7 @@ fi
 
 %files
 %defattr(-,root,root)
-%doc AUTHORS COPYING COPYRIGHT.GPL INSTALL NEWS PORTS README 
+%doc AUTHORS ChangeLog COPYING COPYRIGHT.GPL INSTALL NEWS PORTS README 
 %{_mandir}/man8/%{name}.8*
 %{_sbindir}/%{name}
 %{_datadir}/%{name}
@@ -209,7 +217,17 @@ fi
 /etc/rc.d/init.d/%{name}
 %endif
 
+# Install extra %doc stuff
+%doc contrib/ easy-rsa/ management/ sample-*/ plugin/README.*
+
 %changelog
+
+* Mon Apr 4 2005 James Yonan
+- Moved some files from /usr/share/openvpn to %doc for compatibility
+  with Dag Wieers' RPM repository
+
+* Sat Mar 12 2005 Tom Walsh
+- Added MandrakeSoft liblzo1 require
 
 * Fri Dec 10 2004 James Yonan
 - Added AutoReq: 0 for manual dependencies

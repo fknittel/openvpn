@@ -8,9 +8,8 @@
  *  Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
  *
  *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ *  it under the terms of the GNU General Public License version 2
+ *  as published by the Free Software Foundation.
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -40,7 +39,7 @@
 
 #include "openvpn-plugin.h"
 
-#define DEBUG(verb) ((verb) >= 7) // JYFIXME
+#define DEBUG(verb) ((verb) >= 7)
 
 /* Command codes for foreground -> background communication */
 #define COMMAND_RUN_SCRIPT 0
@@ -398,6 +397,20 @@ openvpn_plugin_close_v1 (openvpn_plugin_handle_t handle)
     }
 
   free_context (context);
+}
+
+OPENVPN_EXPORT void
+openvpn_plugin_abort_v1 (openvpn_plugin_handle_t handle)
+{
+  struct down_root_context *context = (struct down_root_context *) handle;
+
+  if (context->foreground_fd >= 0)
+    {
+      /* tell background process to exit */
+      send_control (context->foreground_fd, COMMAND_EXIT);
+      close (context->foreground_fd);
+      context->foreground_fd = -1;
+    }
 }
 
 /*

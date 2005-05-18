@@ -3,6 +3,10 @@ Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
 
 $Id$
 
+2005.05.18 -- Version 2.0.1_rc2.1MT
+
+* Merged with 2.0.1_rc2.1
+
 2005.05.18 -- Version 2.0-rc16MT
 
 * Merged with 2.0-rc16.
@@ -20,6 +24,101 @@ $Id$
 
 * Merged with 2.0-rc6a.
 
+2005.05.16 -- Version 2.0.1-rc2
+
+* Modified vendor test in openvpn.spec file to match against
+  "Mandrakesoft" in addition to "MandrakeSoft".
+* Using --iroute in a --client-config-dir file while in --dev tap
+  mode is not currently supported and will produce a warning
+  message. Fixed bug where in certain cases, in addition to
+  generating a warning message, this combination of options
+  would also produce a fatal assertion in mroute.c.
+* Pass --auth-user-pass username to server-side plugin without
+  performing any string remapping (plugins, unlike scripts,
+  don't get any security benefit from string remapping).
+  This is intended to fix an issue with openvpn-auth-pam/pam_winbind
+  where backslash characters in a username ('\') were being remapped
+  to underscore ('_').
+* Updated OpenSSL DLLs in Windows build to 0.9.7g.
+* Documented --explicit-exit-notify in man page.
+* --explicit-exit-notify seconds parameter defaults to 1 if
+  unspecified.
+
+2005.04.30 -- Version 2.0.1-rc1
+
+* Fixed bug where certain kinds of fatal errors after
+  initialization (such as port in use) would leave plugin
+  processes (such as openvpn-auth-pam) still running.
+* Added optional openvpn_plugin_abort_v1 plugin function for
+  closing initialized plugin objects in the event of a fatal
+  error by main OpenVPN process.
+* When the --remote list is > 1, and --resolv-retry is not
+  specified (meaning that it defaults to "infinite"), apply the
+  infinite timeout to the --remote list as a whole, but try each
+  list item only once before moving on to the next item.
+* Added new --syslog directive which redirects output
+  to syslog without requiring the use of the --daemon or --inetd
+  directives.
+* Added openvpn.spec option to allow RPM to be built with support
+  for passwords read from a file:
+  rpmbuild -tb [openvpn.x.tar.gz] --define 'with_password_save 1'
+
+2005.04.17 -- Version 2.0
+
+* Fixed minor options string typo in options.c.
+
+2005.04.10 -- Version 2.0-rc21
+
+* Change license description from "GPL Version 2 or (at your
+  option) any later version" to just "GPL Version 2".
+
+2005.04.04 -- Version 2.0-rc20
+
+* Dag Wieers has put together an OpenVPN/LZO binary RPM set with
+  excellent distro/version coverage for RH/EL/Fedora, though
+  using his own SPEC.  I modified openvpn.spec to follow some of
+  the same conventions such as putting sample scripts and doc
+  files in %doc rather than /usr/share/openvpn.
+* Minor change to init scripts to run the user-defined script
+  /etc/openvpn/openvpn-startup (if it exists) before any OpenVPN
+  configs are started, and to run /etc/openvpn/openvpn-shutdown
+  after all OpenVPN configs have been stopped.  The
+  openvpn-startup script can be used for stuff like
+  insmod tun.o, setting up firewall rules, or starting
+  ethernet bridges.
+
+2005.03.29 -- Version 2.0-rc19
+
+* Omit additions of routes where the network and
+  gateway are equal and the netmask is 255.255.255.255.
+  This can come up if you are using both
+  server/ifconfig-pool and client-config-dir with
+  ifconfig-push static addresses for some subset of clients
+  which directly reference the server IP address as the
+  remote endpoint.
+	
+2005.03.28 -- Version 2.0-rc18
+
+* Packaged Windows installer with OpenSSL 0.9.7f.
+* Built Windows installer with NSIS 2.06.
+
+2005.03.12 -- Version 2.0-rc17
+
+* "MANAGEMENT: CMD" log file output will now only occur
+  at --verb 7 or greater.
+* Added an optional name/value configuration list to
+  the openvpn-auth-pam plugin module argument list.  See
+  plugin/auth-pam/README for documentation. This is necessary
+  in order for openvpn-auth-pam to work with queries generated
+  by arbitrary PAM modules.
+* In both auth-pam and down-root plugins, in the forked process,
+  a read error on the parent process socket is no longer fatal.
+* MandrakeSoft liblzo1 RPM only Provides for a 'liblzo1'.
+  A conditional test of the vendor has been added to
+  Require the appropriately named 'lzo' (liblzo1 / lzo).
+  (Tom Walsh - http://openhardware.net)
+
+	
 2005.02.20 -- Version 2.0-rc16
 
 * Fixed bug introduced in rc13 where Windows service wrapper

@@ -8,9 +8,8 @@
  *  Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
  *
  *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ *  it under the terms of the GNU General Public License version 2
+ *  as published by the Free Software Foundation.
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -363,6 +362,7 @@ socket_descriptor_t socket_do_accept (socket_descriptor_t sd,
 #define GETADDR_FATAL_ON_SIGNAL       (1<<4)
 #define GETADDR_WARN_ON_SIGNAL        (1<<5)
 #define GETADDR_MSG_VIRT_OUT          (1<<6)
+#define GETADDR_TRY_ONCE              (1<<7)
 
 in_addr_t getaddr (unsigned int flags,
 		   const char *hostname,

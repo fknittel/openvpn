@@ -8,9 +8,8 @@
  *  Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
  *
  *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ *  it under the terms of the GNU General Public License version 2
+ *  as published by the Free Software Foundation.
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -669,8 +668,11 @@ multi_del_iroutes (struct multi_context *m,
 		   struct multi_instance *mi)
 {
   const struct iroute *ir;
-  for (ir = mi->context.options.iroutes; ir != NULL; ir = ir->next)
-    mroute_helper_del_iroute (m->route_helper, ir);
+  if (TUNNEL_TYPE (mi->context.c1.tuntap) == DEV_TYPE_TUN)
+    {
+      for (ir = mi->context.options.iroutes; ir != NULL; ir = ir->next)
+	mroute_helper_del_iroute (m->route_helper, ir);
+    }
 }
 
 static void
@@ -1284,21 +1286,24 @@ multi_add_iroutes (struct multi_context *m,
 {
   struct gc_arena gc = gc_new ();
   const struct iroute *ir;
-  for (ir = mi->context.options.iroutes; ir != NULL; ir = ir->next)
+  if (TUNNEL_TYPE (mi->context.c1.tuntap) == DEV_TYPE_TUN)
     {
-      if (ir->netbits >= 0)
-	msg (D_MULTI_LOW, "MULTI: internal route %s/%d -> %s",
-	     print_in_addr_t (ir->network, 0, &gc),
-	     ir->netbits,
-	     multi_instance_string (mi, false, &gc));
-      else
-	msg (D_MULTI_LOW, "MULTI: internal route %s -> %s",
-	     print_in_addr_t (ir->network, 0, &gc),
-	     multi_instance_string (mi, false, &gc));
+      for (ir = mi->context.options.iroutes; ir != NULL; ir = ir->next)
+	{
+	  if (ir->netbits >= 0)
+	    msg (D_MULTI_LOW, "MULTI: internal route %s/%d -> %s",
+		 print_in_addr_t (ir->network, 0, &gc),
+		 ir->netbits,
+		 multi_instance_string (mi, false, &gc));
+	  else
+	    msg (D_MULTI_LOW, "MULTI: internal route %s -> %s",
+		 print_in_addr_t (ir->network, 0, &gc),
+		 multi_instance_string (mi, false, &gc));
 
-      mroute_helper_add_iroute (m->route_helper, ir);
+	  mroute_helper_add_iroute (m->route_helper, ir);
       
-      multi_learn_in_addr_t (m, mi, ir->network, ir->netbits, flags);
+	  multi_learn_in_addr_t (m, mi, ir->network, ir->netbits, flags);
+	}
     }
   gc_free (&gc);
 }

@@ -8,9 +8,8 @@
  *  Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
  *
  *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ *  it under the terms of the GNU General Public License version 2
+ *  as published by the Free Software Foundation.
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -660,6 +659,16 @@ add_route (struct route *r, const struct tuntap *tt, unsigned int flags, const s
   netmask = print_in_addr_t (r->netmask, 0, &gc);
   gateway = print_in_addr_t (r->gateway, 0, &gc);
 
+  /*
+   * Filter out routes which are essentially no-ops
+   */
+  if (r->network == r->gateway && r->netmask == 0xFFFFFFFF)
+    {
+      msg (M_INFO, PACKAGE_NAME " ROUTE: omitted no-op route: %s/%s -> %s",
+	   network, netmask, gateway);
+      goto done;
+    }
+
 #if defined(TARGET_LINUX)
 #ifdef CONFIG_FEATURE_IPROUTE
   buf_printf (&buf, IPROUTE_PATH " route add %s/%d via %s",
@@ -781,6 +790,7 @@ add_route (struct route *r, const struct tuntap *tt, unsigned int flags, const s
   msg (M_FATAL, "Sorry, but I don't know how to do 'route' commands on this operating system.  Try putting your routes in a --route-up script");
 #endif
 
+ done:
   r->defined = status;
   gc_free (&gc);
 }

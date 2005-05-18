@@ -8,9 +8,8 @@
  *  Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
  *
  *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ *  it under the terms of the GNU General Public License version 2
+ *  as published by the Free Software Foundation.
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -174,9 +173,6 @@ static const char usage_message[] =
   "                  remote address.\n"
   "--ping n        : Ping remote once every n seconds over TCP/UDP port.\n"
   "--fast-io       : (experimental) Optimize TUN/TAP/UDP writes.\n"
-#ifdef ENABLE_OCC
-  "--explicit-exit-notify n : (experimental) on exit, send exit signal to remote.\n"
-#endif
   "--remap-usr1 s  : On SIGUSR1 signals, remap signal (s='SIGHUP' or 'SIGTERM').\n"
   "--persist-tun   : Keep tun/tap device open across SIGUSR1 or --ping-restart.\n"
   "--persist-remote-ip : Keep remote IP address across SIGUSR1 or --ping-restart.\n"
@@ -230,6 +226,8 @@ static const char usage_message[] =
   "--daemon [name] : Become a daemon after initialization.\n"
   "                  The optional 'name' parameter will be passed\n"
   "                  as the program name to the system logger.\n"
+  "--syslog [name] : Output to syslog, but do not become a daemon.\n"
+  "                  See --daemon above for a description of the 'name' parm.\n"
   "--inetd [name] ['wait'|'nowait'] : Run as an inetd or xinetd server.\n"
   "                  See --daemon above for a description of the 'name' parm.\n"
   "--log file      : Output log to file which is created/truncated on open.\n"
@@ -256,7 +254,7 @@ static const char usage_message[] =
   "--mute n        : Log at most n consecutive messages in the same category.\n"
   "--status file n : Write operational status to file every n seconds.\n"
   "--status-version [n] : Choose the status file format version number.\n"
-  "                  Currently, n can be 1 or 2 (default=1)\n."
+  "                  Currently, n can be 1 or 2 (default=1).\n"
 #ifdef ENABLE_OCC
   "--disable-occ   : Disable options consistency check between peers.\n"
 #endif
@@ -345,6 +343,10 @@ static const char usage_message[] =
   "--pull           : Accept certain config file options from the peer as if they\n"
   "                  were part of the local config file.  Must be specified\n"
   "                  when connecting to a '--mode server' remote host.\n"
+#endif
+#ifdef ENABLE_OCC
+  "--explicit-exit-notify [n] : On exit/restart, send exit signal to\n"
+  "                  server/remote. n = # of retries, default=1.\n"
 #endif
 #ifdef USE_CRYPTO
   "\n"
@@ -2910,6 +2912,13 @@ add_option (struct options *options,
       VERIFY_PERMISSION (OPT_P_GENERAL);
       options->up_restart = true;
     }
+  else if (streq (p[0], "syslog"))
+    {
+      VERIFY_PERMISSION (OPT_P_GENERAL);
+      if (p[1])
+       ++i;
+      open_syslog (p[1], false);
+    }
   else if (streq (p[0], "daemon"))
     {
       bool didit = false;
@@ -3390,11 +3399,18 @@ add_option (struct options *options,
       options->ping_timer_remote = true;
     }
 #ifdef ENABLE_OCC
-  else if (streq (p[0], "explicit-exit-notify") && p[1])
+  else if (streq (p[0], "explicit-exit-notify"))
     {
-      ++i;
       VERIFY_PERMISSION (OPT_P_EXPLICIT_NOTIFY);
-      options->explicit_exit_notification = positive_atoi (p[1]);
+      if (p[1])
+	{
+	  ++i;
+	  options->explicit_exit_notification = positive_atoi (p[1]);
+	}
+      else
+	{
+	  options->explicit_exit_notification = 1;
+	}
     }
 #endif
   else if (streq (p[0], "persist-tun"))

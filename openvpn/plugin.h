@@ -8,9 +8,8 @@
  *  Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
  *
  *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ *  it under the terms of the GNU General Public License version 2
+ *  as published by the Free Software Foundation.
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -59,6 +58,7 @@ struct plugin {
   openvpn_plugin_open_v1 open;
   openvpn_plugin_func_v1 func;
   openvpn_plugin_close_v1 close;
+  openvpn_plugin_abort_v1 abort;
 
   openvpn_plugin_handle_t plugin_handle;
 };

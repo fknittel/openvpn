@@ -8,9 +8,8 @@
  *  Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
  *
  *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ *  it under the terms of the GNU General Public License version 2
+ *  as published by the Free Software Foundation.
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -883,9 +882,9 @@ man_process_command (struct management *man, const char *line)
     {
       nparms = parse_line (line, parms, MAX_PARMS, "TCP", 0, M_CLIENT, &gc);
       if (parms[0] && streq (parms[0], "password"))
-	msg (D_MANAGEMENT, "MANAGEMENT: CMD 'password [...]'");
+	msg (D_MANAGEMENT_DEBUG, "MANAGEMENT: CMD 'password [...]'");
       else
-	msg (D_MANAGEMENT, "MANAGEMENT: CMD '%s'", line);
+	msg (D_MANAGEMENT_DEBUG, "MANAGEMENT: CMD '%s'", line);
 
 #if 0
       // DEBUGGING -- print args
