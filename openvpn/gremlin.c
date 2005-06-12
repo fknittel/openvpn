@@ -83,7 +83,7 @@ static const int down_high[] = { 10, 60, 120 };
  *  { number of packets, packet size }
  */
 static const struct packet_flood_parms packet_flood_data[] =
-  {{10, 100}, {10, 1000}, {100, 1000}};
+  {{10, 100}, {10, 1500}, {100, 1500}};
 
 /*
  * Gremlin flag parse table

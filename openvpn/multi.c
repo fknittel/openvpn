@@ -567,13 +567,15 @@ multi_init (struct multi_context *m, struct context *t, bool tcp_mode)
 	{
 	  m->ifconfig_pool = ifconfig_pool_init (IFCONFIG_POOL_INDIV,
 						 t->options.ifconfig_pool_start,
-						 t->options.ifconfig_pool_end);
+						 t->options.ifconfig_pool_end,
+						 t->options.duplicate_cn);
 	}
       else if (dev == DEV_TYPE_TUN)
 	{
 	  m->ifconfig_pool = ifconfig_pool_init (IFCONFIG_POOL_30NET,
 						 t->options.ifconfig_pool_start,
-						 t->options.ifconfig_pool_end);
+						 t->options.ifconfig_pool_end,
+						 t->options.duplicate_cn);
 	}
       else
 	{
@@ -693,7 +695,7 @@ multi_client_disconnect_script (struct multi_context *m,
 				struct multi_instance *mi,
 				const unsigned int flags)
 {
-  if (mi->context.c2.context_auth == CAS_SUCCEEDED)
+  if (mi->context.c2.context_auth == CAS_SUCCEEDED || mi->context.c2.context_auth == CAS_PARTIAL)
     {
       multi_client_disconnect_setenv (m, mi);
 
@@ -1501,6 +1503,7 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
       unsigned int option_types_found = 0;
       const unsigned int option_permissions_mask = OPT_P_PUSH|OPT_P_INSTANCE|OPT_P_TIMER|OPT_P_CONFIG|OPT_P_ECHO;
       int cc_succeeded = true; /* client connect script status */
+      int cc_succeeded_count = 0;
 
       ASSERT (mi->context.c1.tuntap);
 
@@ -1597,7 +1600,10 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 	      cc_succeeded = false;
 	    }
 	  else
-	    multi_client_connect_post (m, mi, dc_file, option_permissions_mask, &option_types_found);
+	    {
+	      multi_client_connect_post (m, mi, dc_file, option_permissions_mask, &option_types_found);
+	      ++cc_succeeded_count;
+	    }
 	}
 
       /*
@@ -1625,7 +1631,10 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 				  mi->context.c2.es,
 				  S_SCRIPT|SP_SCHEDULE)
 	      && !IS_SIG (&mi->context))
-	    multi_client_connect_post (m, mi, dc_file, option_permissions_mask, &option_types_found);
+	    {
+	      multi_client_connect_post (m, mi, dc_file, option_permissions_mask, &option_types_found);
+	      ++cc_succeeded_count;
+	    }
 	  else
 	    cc_succeeded = false;
 	}
@@ -1704,7 +1713,10 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 	}
 
       /* set context-level authentication flag */
-      mi->context.c2.context_auth = cc_succeeded ? CAS_SUCCEEDED : CAS_FAILED;
+      if (cc_succeeded)
+	mi->context.c2.context_auth = CAS_SUCCEEDED;
+      else
+	mi->context.c2.context_auth = cc_succeeded_count ? CAS_PARTIAL : CAS_FAILED;
 
       /* set flag so we don't get called again */
       mi->connection_established_flag = true;
