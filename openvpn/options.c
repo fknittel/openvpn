@@ -236,8 +236,7 @@ static const char usage_message[] =
   "--writepid file : Write main process ID to file.\n"
   "--nice n        : Change process priority (>0 = lower, <0 = higher).\n"
 #ifdef USE_PTHREAD
-  "--work-thread   : Enable work thread for processing high-latency functions.\n"
-  "--nice-work n   : Change 'nice' thread priority of work thread.\n"
+  "--threads n     : Use n threads.\n"
 #endif
   "--echo [parms ...] : Echo parameters to log output.\n"
   "--verb n        : Set output verbosity to n (default=%d):\n"
@@ -3151,16 +3150,10 @@ add_option (struct options *options,
 #endif
     }
 #ifdef USE_PTHREAD
-  else if (streq (p[0], "nice-work") && p[1])
-    {
-      ++i;
-      VERIFY_PERMISSION (OPT_P_NICE);
-      options->nice_work = atoi (p[1]);
-    }
-  else if (streq (p[0], "work-thread"))
+  else if (streq (p[0], "threads"))
     {
       VERIFY_PERMISSION (OPT_P_GENERAL);
-      options->n_threads = 2;
+      options->n_threads = positive_atoi (p[1]);
     }
 #endif
   else if (streq (p[0], "shaper") && p[1])

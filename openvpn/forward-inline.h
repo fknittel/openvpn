@@ -271,16 +271,6 @@ io_wait (struct context *c, const unsigned int flags)
     }
 }
 
-static inline bool
-is_work_thread_break (const struct context *c)
-{
-#ifdef USE_PTHREAD
-  if ((c->c2.event_set_status & (WORK_THREAD_READ|WORK_THREAD_WRITE)) && c->c1.work_thread)
-    return work_thread_break (c->c1.work_thread);
-#endif
-  return false;
-}
-
 #define CONNECTION_ESTABLISHED(c) (get_link_socket_info(c)->connection_established)
 
 #endif /* EVENT_INLINE_H */

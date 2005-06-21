@@ -701,14 +701,6 @@ tls_deauthenticate (struct tls_multi *multi)
     }
 }
 
-#ifdef USE_PTHREAD
-void tls_set_work_thread (struct tls_multi *multi, struct work_thread *wt, struct thread_context *tc)
-{
-  multi->work_thread = wt;
-  multi->thread_context = tc;
-}
-#endif
-
 /*
  * Print debugging information on SSL/TLS session negotiation.
  */
@@ -1229,12 +1221,7 @@ bio_read (struct tls_multi* multi, BIO *bio, struct buffer *buf, int maxlen, con
        * a good idea to offload it to a work thread.
        */
 
-#ifdef USE_PTHREAD
-      if (multi->work_thread && (flags & BR_TRY_THREAD))
-	i = work_thread_bio_read (multi->work_thread, multi->thread_context, bio, BPTR (buf), len);
-      else
-#endif
-	i = BIO_read (bio, BPTR (buf), len);
+      i = BIO_read (bio, BPTR (buf), len);
 
       VALGRIND_MAKE_READABLE ((void *) &i, sizeof (i));
 
@@ -2339,15 +2326,7 @@ verify_user_pass_script (struct tls_multi *multi, struct tls_session *session, c
       buf_printf (&cmd, "%s %s", session->opt->auth_user_pass_verify_script, tmp_file);
       
       /* call command */
-#ifdef USE_PTHREAD
-      if (multi->work_thread)
-	retval = work_thread_system (multi->work_thread,
-				     multi->thread_context,
-				     BSTR (&cmd),
-				     session->opt->es, S_SCRIPT);
-      else
-#endif
-	retval = openvpn_system (BSTR (&cmd), session->opt->es, S_SCRIPT);
+      retval = openvpn_system (BSTR (&cmd), session->opt->es, S_SCRIPT);
 
       /* test return status of command */
       if (system_ok (retval))
@@ -2391,17 +2370,7 @@ verify_user_pass_plugin (struct tls_multi *multi, struct tls_session *session, c
       setenv_untrusted (session);
 
       /* call command */
-#ifdef USE_PTHREAD
-      if (multi->work_thread)
-	retval = work_thread_plugin_call (multi->work_thread,
-					  multi->thread_context,
-					  session->opt->plugins,
-					  OPENVPN_PLUGIN_AUTH_USER_PASS_VERIFY,
-					  NULL,
-					  session->opt->es);
-      else
-#endif
-	retval = plugin_call (session->opt->plugins, OPENVPN_PLUGIN_AUTH_USER_PASS_VERIFY, NULL, session->opt->es);
+      retval = plugin_call (session->opt->plugins, OPENVPN_PLUGIN_AUTH_USER_PASS_VERIFY, NULL, session->opt->es);
 
       if (!retval)
 	ret = true;
@@ -3218,9 +3187,11 @@ tls_multi_process (struct tls_multi *multi,
   bool active = false;
   bool error = false;
 
+#if 0
 #ifdef USE_PTHREAD
-  if (multi->work_thread && !work_thread_ready (multi->thread_context))
+  if (reentrant)
     return false;
+#endif
 #endif
 
   gc = gc_new ();

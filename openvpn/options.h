@@ -273,7 +273,6 @@ struct options
 
 #ifdef USE_PTHREAD
   int n_threads;
-  int nice_work;
 #endif
 
 #if P2MP

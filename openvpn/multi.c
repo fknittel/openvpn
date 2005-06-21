@@ -45,198 +45,9 @@
 //#define MULTI_DEBUG_EVENT_LOOP
 
 /*
- * Script/Plugin flags
- * These flags must not collide with S_ flags in misc.h,
- * MULTI_ flags in multi.h, or WTF_ flags in work.h.
- */
-#define SP_FORCE_UNTHREADED (1<<16) /* do task in current thread, not work thread */
-
-/*
- * Script/Plugin save/restore flags.
- * These flags are used to selectively control the
- * saving and restoring of certain parts of the current
- * execution context prior to recursive reentering
- * of the main event loop when we are blocking on
- * completion of a work thread task.
- */
-#define SP_SECONDARY        (1<<17) /* we are loading secondary struct multi_instance for client-to-client target */
-#define SP_PENDING          (1<<18) /* m->pending must be preserved */
-#define SP_PENDING_PASSTHRU (1<<19) /* pass current pending pointer to inner recursive event loop */
-#define SP_TOP_BUF          (1<<20) /* m->top.context.c2.buf must be preserved */
-#define SP_SCHEDULE         (1<<21) /* remove/restore instance from scheduler, also implies SP_SCHEDULE_RESET */
-#define SP_SCHEDULE_RESET   (1<<22) /* immediate rescheduling of instance on restore */
-#define SP_REAP             (1<<23) /* called by virtual address reaper */
-
-/*
  * Flags for multi_get_instance_by_virtual_addr
- * Must be exclusive of SP_ flags above
  */
 #define MGI_CIDR_ROUTING  (1<<24)
-
-#ifdef USE_PTHREAD
-
-static void
-multi_thread_clear_recursive_state (struct multi_context *m, const unsigned int flags)
-{
-  if (!(flags & SP_PENDING_PASSTHRU))
-    m->pending = NULL;
-  m->earliest_wakeup = NULL;
-  m->mpp_touched = NULL;
-}
-
-static void
-multi_thread_increase_thread_level (struct thread_context *tc,
-				    const int new_thread_level,
-				    int *thread_level_save)
-{
-  dmsg (D_WORK_THREAD_DEBUG, "INCREASE THREAD LEVEL new=%d old=%d",
-	new_thread_level,
-	tc->thread_level);
-
-  /*  thread level must increase */
-  ASSERT (new_thread_level > tc->thread_level);
-  *thread_level_save = tc->thread_level;
-  tc->thread_level = new_thread_level;
-}
-
-static void
-multi_thread_decrease_thread_level (struct thread_context *tc,
-				    const int thread_level_save)
-{
-  dmsg (D_WORK_THREAD_DEBUG, "DECREASE THREAD LEVEL save=%d prev=%d",
-	thread_level_save,
-	tc->thread_level);
-
-  /*  thread level must decrease */
-  ASSERT (thread_level_save < tc->thread_level);
-  tc->thread_level = thread_level_save;
-}
-
-static void
-save_mpp_touched (struct multi_context_thread_save *s, struct multi_context *m, struct multi_instance *mi)
-{
-  if (!s->mpp_touched && m->mpp_touched && *m->mpp_touched == mi)
-    s->mpp_touched = m->mpp_touched;
-}
-
-static void *
-multi_thread_save (struct thread_context *tc)
-{
-  struct multi_context *m = (struct multi_context *) tc->arg1;
-  struct multi_instance *mi = (struct multi_instance *) tc->arg2;
-  struct multi_context_thread_save *s;
-
-  const int new_thread_level = (tc->flags & WTF_LIGHT) ? TL_LIGHT : TL_FULL;
-
-  ASSERT (m);
-
-  ALLOC_OBJ_CLEAR (s, struct multi_context_thread_save);
-
-  if (mi)
-    {
-      /* increment thread level before going recursive, and save previous thread level */
-      multi_thread_increase_thread_level (tc, new_thread_level, &s->thread_level_mi);
-
-      /* remove client instance from scheduler list */
-      if (tc->flags & SP_SCHEDULE)
-	schedule_remove_entry (m->schedule, (struct schedule_entry *) mi);
-    }
-
-  /* save m->pending */
-  if ((tc->flags & SP_PENDING) && m->pending)
-    {
-      if (mi != m->pending)
-	{
-	  multi_thread_increase_thread_level (&m->pending->context.c2.thread_context, new_thread_level, &s->thread_level_pending);
-	  save_mpp_touched (s, m, m->pending);
-	}
-	
-      s->pending = m->pending;
-    }
-
-  /* save m->top.c2.buf */
-  if (tc->flags & SP_TOP_BUF)
-    s->top_buf = clone_buf (&m->top.c2.buf);
-
-  save_mpp_touched (s, m, m->pending);
-
-  multi_thread_clear_recursive_state (m, tc->flags);
-
-  return (void *) s;
-}
-
-static void
-multi_thread_restore (struct thread_context *tc,
-		      void *save_data)
-{
-  struct multi_context *m = (struct multi_context *) tc->arg1;
-  struct multi_instance *mi = (struct multi_instance *) tc->arg2;
-  struct multi_context_thread_save *s = (struct multi_context_thread_save *) save_data;
-
-  ASSERT (m);
-  ASSERT (s);
-
-  multi_thread_clear_recursive_state (m, 0);
-
-  if (mi)
-    {
-      /* restore previous thread level */
-      multi_thread_decrease_thread_level (tc, s->thread_level_mi);
-
-      /* schedule immediate wakeup */
-      if (tc->flags & (SP_SCHEDULE|SP_SCHEDULE_RESET))
-	{
-	  struct timeval tv;
-	  reset_coarse_timers (&mi->context);
-	  ASSERT (!gettimeofday (&tv, NULL));
-	  schedule_add_entry (m->schedule, (struct schedule_entry *) mi, &tv, 0);
-	}  
-    }
-
-  /* restore m->pending */
-  if (tc->flags & SP_PENDING)
-    {
-      m->pending = s->pending;
-
-      if (m->pending && mi != m->pending)
-	multi_thread_decrease_thread_level (&m->pending->context.c2.thread_context, s->thread_level_pending);
-    }
-
-  /* restore m->top.c2.buf */
-  if (tc->flags & SP_TOP_BUF)
-    {
-      ASSERT (buf_defined (&s->top_buf));
-      m->top.c2.buf = m->top.c2.buffers->aux_buf;
-      buf_assign (&m->top.c2.buf, &s->top_buf);
-      free_buf (&s->top_buf);
-    }
-
-  if (s->mpp_touched)
-    m->mpp_touched = s->mpp_touched;
-
-  m->event_loop_reentered = true;
-
-  free (s);
-}
-
-static inline struct thread_context *
-multi_get_thread_context (struct multi_context *m, struct multi_instance *mi)
-{
-  return mi ? &mi->context.c2.thread_context : &m->thread_context;
-}
-
-static void
-multi_init_thread_context (struct multi_context *m, struct multi_instance *mi, struct thread_context *tc)
-{
-  tc->thread_level = TL_INACTIVE;
-  tc->flags = 0;
-  tc->arg1 = (void *)m;
-  tc->arg2 = (void *)mi;
-  tc->save = multi_thread_save;
-  tc->restore = multi_thread_restore;
-}
-
-#endif
 
 #ifdef MULTI_DEBUG_EVENT_LOOP
 static const char *
@@ -258,32 +69,13 @@ multi_plugin_call (struct multi_context *m,
 		   struct env_set *es,
 		   const unsigned int flags)
 {
-  int ret = 1;
-
-#ifdef USE_PTHREAD
-  if (m->top.c1.work_thread && !(flags & SP_FORCE_UNTHREADED))
-    {
-      struct thread_context *tc = multi_get_thread_context (m, mi);
-      tc->flags = flags;
-      ret = work_thread_plugin_call (m->top.c1.work_thread,
-				     tc,
-				     m->top.c1.plugins,
-				     plugin_type,
-				     args,
-				     es);
-      if (ret)
-	msg (M_WARN, "WARNING: %s plugin call failed (work_thread)", name);
-    }
-  else
-#endif
-    {
-      ret = plugin_call (m->top.c1.plugins,
+  int ret = plugin_call (m->top.c1.plugins,
 			 plugin_type,
 			 args,
 			 es);
-      if (ret)
-	msg (M_WARN, "WARNING: %s plugin call failed", name);
-    }
+  if (ret)
+    msg (M_WARN, "WARNING: %s plugin call failed", name);
+
   return ret;
 }
 
@@ -301,22 +93,7 @@ multi_system_check (struct multi_context *m,
 
   buf_printf (&error, "WARNING: %s command failed", name);
 
-#ifdef USE_PTHREAD
-      if (m->top.c1.work_thread && !(flags & SP_FORCE_UNTHREADED))
-	{
-	  struct thread_context *tc = multi_get_thread_context (m, mi);
-	  tc->flags = flags;
-	  buf_printf (&error, " (work_thread)");
-	  ret = work_thread_system_check (m->top.c1.work_thread,
-					  tc,
-					  command,
-					  es,
-					  flags,
-					  BSTR (&error));
-	}
-      else
-#endif
-	ret = system_check (command, es, flags, BSTR (&error));
+  ret = system_check (command, es, flags, BSTR (&error));
 
   gc_free (&gc);
   return ret;
@@ -444,7 +221,7 @@ multi_reap_range (struct multi_context *m,
 static void
 multi_reap_all (struct multi_context *m)
 {
-  multi_reap_range (m, -1, 0, SP_FORCE_UNTHREADED);
+  multi_reap_range (m, -1, 0, 0);
 }
 
 static struct multi_reap *
@@ -464,7 +241,7 @@ multi_reap_process_dowork (struct multi_context *m)
   struct multi_reap *mr = m->reaper;
   if (mr->bucket_base >= hash_n_buckets (m->vhash))
     mr->bucket_base = 0;
-  multi_reap_range (m, mr->bucket_base, mr->bucket_base + mr->buckets_per_pass, SP_REAP|SP_SCHEDULE); /* THREAD-LEARN */
+  multi_reap_range (m, mr->bucket_base, mr->bucket_base + mr->buckets_per_pass, 0);
   mr->bucket_base += mr->buckets_per_pass;
   mr->last_call = now;
 }
@@ -621,10 +398,6 @@ multi_init (struct multi_context *m, struct context *t, bool tcp_mode)
    * tun/tap interface and network stack?
    */
   m->enable_c2c = t->options.enable_c2c;
-
-#ifdef USE_PTHREAD
-  multi_init_thread_context (m, NULL, &m->thread_context);
-#endif
 }
 
 const char *
@@ -737,7 +510,7 @@ multi_close_instance (struct multi_context *m,
 		      struct multi_instance *mi,
 		      bool shutdown)
 {
-  const bool partial = !multi_instance_ready (mi, TL_INACTIVE);
+  const bool partial = false;
 
   perf_push (PERF_MULTI_CLOSE_INSTANCE);
 
@@ -792,7 +565,7 @@ multi_close_instance (struct multi_context *m,
 
   if (!partial)
     {
-      multi_client_disconnect_script (m, mi, shutdown ? SP_FORCE_UNTHREADED : 0); /* THREAD-CD */
+      multi_client_disconnect_script (m, mi, 0);
 
       if (mi->did_open_context)
 	close_context (&mi->context, SIGTERM, CC_GC_FREE);
@@ -882,10 +655,6 @@ multi_create_instance (struct multi_context *m, const struct mroute_addr *real)
   mi->did_open_context = true;
 
   mi->context.c2.context_auth = CAS_PENDING;
-
-#ifdef USE_PTHREAD
-  multi_init_thread_context (m, mi, &mi->context.c2.thread_context);
-#endif
 
   if (hash_n_elements (m->hash) >= m->max_clients)
     {
@@ -1584,13 +1353,13 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 
 	  delete_file (dc_file);
 
-	  if (multi_plugin_call (m,  /* THREAD-CC */
+	  if (multi_plugin_call (m,
 				 mi,
 				 "client-connect",
 				 OPENVPN_PLUGIN_CLIENT_CONNECT,
 				 dc_file,
 				 mi->context.c2.es,
-				 SP_SCHEDULE))
+				 0))
 	    {
 	      msg (M_WARN, "WARNING: client-connect plugin call failed");
 	      cc_succeeded = false;
@@ -1624,12 +1393,12 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 		      mi->context.options.client_connect_script,
 		      dc_file);
 
-	  if (multi_system_check (m, /* THREAD-CC */
+	  if (multi_system_check (m,
 				  mi,
 				  "client-connect",
 				  BSTR (&cmd),
 				  mi->context.c2.es,
-				  S_SCRIPT|SP_SCHEDULE)
+				  0)
 	      && !IS_SIG (&mi->context))
 	    {
 	      multi_client_connect_post (m, mi, dc_file, option_permissions_mask, &option_types_found);
@@ -1673,7 +1442,7 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 	    {
 	      if (mi->context.c2.push_ifconfig_defined)
 		{
-		  multi_learn_in_addr_t (m, mi, mi->context.c2.push_ifconfig_local, -1, SP_SCHEDULE); /* THREAD-LEARN */
+		  multi_learn_in_addr_t (m, mi, mi->context.c2.push_ifconfig_local, -1, 0);
 		  if (IS_SIG (&mi->context))
 		    {
 		      cc_succeeded = false;
@@ -1689,7 +1458,7 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 	      /* add routes locally, pointing to new client, if
 		 --iroute options have been specified */
 	      if (cc_succeeded)
-		multi_add_iroutes (m, mi, SP_SCHEDULE); /* THREAD-LEARN */
+		multi_add_iroutes (m, mi, 0);
 	      if (IS_SIG (&mi->context))
 		cc_succeeded = false;
 
@@ -1852,22 +1621,11 @@ multi_process_post (struct multi_context *m, struct multi_instance *mi, const un
 {
   bool ret = true;
 
-#if 0 // JYFIXME
-  if (flags & MPP_CALL_STREAM_BUF_READ_SETUP)
-    stream_buf_read_setup (mi->context.c2.link_socket);
-#endif
-
-  if (!IS_SIG (&mi->context) && ((flags & MPP_FORCE_PRE_SELECT) || !ANY_OUT (&mi->context)))
+  if (!IS_SIG (&mi->context) && ((flags & MPP_PRE_SELECT) || ((flags & MPP_CONDITIONAL_PRE_SELECT) && !ANY_OUT (&mi->context))))
     {
-#ifdef USE_PTHREAD
-      /* set flags for SSL tasks which might occur in pre_select */
-      if (m->top.c1.work_thread)
-	mi->context.c2.thread_context.flags = WTF_LIGHT;
-#endif
-
       /* figure timeouts and fetch possible outgoing
 	 to_link packets (such as ping or TLS control) */
-      pre_select (&mi->context); /* THREAD-CALL */
+      pre_select (&mi->context);
 
       if (!IS_SIG (&mi->context))
 	{
@@ -1884,7 +1642,7 @@ multi_process_post (struct multi_context *m, struct multi_instance *mi, const un
 	  /* connection is "established" when SSL/TLS key negotiation succeeds
 	     and (if specified) auth user/pass succeeds */
 	  if (!mi->connection_established_flag && CONNECTION_ESTABLISHED (&mi->context))
-	    multi_connection_established (m, mi); /* THREAD-CALL */
+	    multi_connection_established (m, mi);
 	}
     }
 
@@ -1981,9 +1739,9 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 		  goto drop;
 		}
 	      /* make sure that source address is associated with this client */
-	      else if (multi_get_instance_by_virtual_addr (m, /* THREAD-LEARN */
+	      else if (multi_get_instance_by_virtual_addr (m,
 							   &src,
-							   MGI_CIDR_ROUTING|SP_PENDING|SP_SCHEDULE)
+							   MGI_CIDR_ROUTING)
 		       != m->pending)
 		{
 		  msg (D_MULTI_DROPPED, "MULTI: bad source address from client [%s], packet dropped",
@@ -2007,9 +1765,9 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 		  else /* possible client-to-client routing */
 		    {
 		      ASSERT (!(mroute_flags & MROUTE_EXTRACT_BCAST));
-		      mi = multi_get_instance_by_virtual_addr (m, /* THREAD-LEARN */
+		      mi = multi_get_instance_by_virtual_addr (m,
 							       &dest,
-							       MGI_CIDR_ROUTING|SP_PENDING|SP_SECONDARY|SP_SCHEDULE);
+							       MGI_CIDR_ROUTING);
 		      if (IS_SIG (c)) /* learn address script might generate a signal */
 			goto drop;
 
@@ -2033,10 +1791,10 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 
 	      if (mroute_flags & MROUTE_EXTRACT_SUCCEEDED)
 		{
-		  if (multi_learn_addr (m, /* THREAD-LEARN */
+		  if (multi_learn_addr (m,
 					m->pending,
 					&src,
-					SP_PENDING|SP_SCHEDULE) == m->pending)
+					0) == m->pending)
 		    {
 		      /* learn address script might generate a signal */
 		      if (IS_SIG (c))
@@ -2051,9 +1809,9 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 			    }
 			  else /* try client-to-client routing */
 			    {
-			      mi = multi_get_instance_by_virtual_addr (m, /* THREAD-LEARN */
+			      mi = multi_get_instance_by_virtual_addr (m,
 								       &dest,
-								       SP_PENDING|SP_SECONDARY|SP_SCHEDULE);
+								       0);
 			      if (IS_SIG (c)) /* learn address script might generate a signal */
 				goto drop;
 
@@ -2142,11 +1900,11 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
 	    }
 	  else
 	    {
-	      multi_set_pending (m, multi_get_instance_by_virtual_addr (m, /* THREAD-LEARN */
+	      multi_set_pending (m, multi_get_instance_by_virtual_addr (m,
 									&dest,
 									(dev_type == DEV_TYPE_TUN)
-									? (MGI_CIDR_ROUTING|SP_TOP_BUF|SP_SCHEDULE)
-									: (SP_TOP_BUF|SP_SCHEDULE)));
+									? MGI_CIDR_ROUTING
+									: 0));
 
 	      if (m->pending)
 		{
@@ -2231,10 +1989,10 @@ multi_process_timeout (struct multi_context *m, const unsigned int mpp_flags)
   /* instance marked for wakeup? */
   if (m->earliest_wakeup)
     {
-      ASSERT (multi_instance_ready (m->earliest_wakeup, TL_LIGHT));
+      ASSERT (multi_instance_ready (m->earliest_wakeup));
 
       set_prefix (m->earliest_wakeup);
-      ret = multi_process_post (m, m->earliest_wakeup, (mpp_flags | MPP_FORCE_PRE_SELECT));
+      ret = multi_process_post (m, m->earliest_wakeup, (mpp_flags | MPP_PRE_SELECT));
       m->earliest_wakeup = NULL;
       clear_prefix ();
     }
@@ -2317,7 +2075,7 @@ multi_process_per_second_timers_dowork (struct multi_context *m)
 #endif
 
   /* possibly reap instances/routes in vhash */
-  multi_reap_process (m); /* THREAD-LEARN */
+  multi_reap_process (m);
 }
 
 void

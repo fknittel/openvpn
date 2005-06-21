@@ -1200,10 +1200,6 @@ io_wait_dowork (struct context *c, const unsigned int flags)
   static const int management_shift = 6;  /* depends on MANAGEMENT_READ and MANAGEMENT_WRITE */
 #endif
 
-#ifdef USE_PTHREAD
-  static const int work_thread_shift = 8; /* depends on WORK_THREAD_READ and WORK_THREAD_WRITE */
-#endif
-
   /*
    * Decide what kind of events we want to wait for.
    */
@@ -1295,11 +1291,6 @@ io_wait_dowork (struct context *c, const unsigned int flags)
 #ifdef ENABLE_MANAGEMENT
   if (management)
     management_socket_set (management, c->c2.event_set, (void*)&management_shift, NULL);
-#endif
-
-#ifdef USE_PTHREAD
-  if (c->c1.work_thread && !((socket|tuntap) & EVENT_WRITE))
-    work_thread_socket_set (c->c1.work_thread, c->c2.event_set, (void*)&work_thread_shift, NULL);
 #endif
 
   /*

@@ -176,10 +176,13 @@ struct context_1
   struct user_pass *auth_user_pass;
 #endif
 
+#if 0
 #ifdef USE_PTHREAD
   struct work_thread *work_thread;
   bool work_thread_owned;
 #endif
+#endif
+
 };
 
 /*
@@ -206,10 +209,6 @@ struct context_2
 # ifdef ENABLE_MANAGEMENT
 #  define MANAGEMENT_READ   (1<<6)
 #  define MANAGEMENT_WRITE  (1<<7)
-# endif
-# ifdef USE_PTHREAD
-#  define WORK_THREAD_READ  (1<<8)
-#  define WORK_THREAD_WRITE (1<<9)
 # endif
 
   unsigned int event_set_status;
@@ -423,10 +422,6 @@ struct context_2
   struct event_timeout scheduled_exit;
 
 #endif /* P2MP */
-
-#ifdef USE_PTHREAD
-  struct thread_context thread_context;
-#endif
 };
 
 /*

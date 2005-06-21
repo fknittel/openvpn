@@ -2010,95 +2010,6 @@ do_inherit_env (struct context *c, const struct env_set *src)
 }
 
 /*
- * Initialize/Uninitialize work thread
- */
-
-#ifdef USE_PTHREAD
-
-static void *
-do_thread_save (struct thread_context *tc)
-{
-  ASSERT (tc->thread_level == TL_INACTIVE);
-  tc->thread_level = TL_LIGHT;
-  return NULL;
-}
-
-static void
-do_thread_restore (struct thread_context *tc,
-		   void *save_data)
-{
-  struct context *c = (struct context *)tc->arg1;
-  ASSERT (tc->thread_level == TL_LIGHT);
-  tc->thread_level = TL_INACTIVE;
-  reset_coarse_timers (c);
-}
-
-static void
-init_thread_context (struct context *c)
-{
-  struct thread_context *tc = &c->c2.thread_context;
-  tc->thread_level = TL_INACTIVE;
-  tc->flags = 0;
-  tc->arg1 = (void *)c;
-  tc->arg2 = NULL;
-  tc->save = do_thread_save;
-  tc->restore = do_thread_restore;
-}
-
-#endif
-
-static void
-do_init_pthread (struct context *c, const bool force_buffer_alloc)
-{
-#ifdef USE_PTHREAD
-  if (!c->c1.work_thread && c->options.n_threads >= 2)
-    {
-      c->c1.work_thread = work_thread_init (c->options.n_threads, c->options.nice_work);
-      c->c1.work_thread_owned = true;
-    }
-
-  if (c->c1.work_thread && c->c2.tls_multi)
-    tls_set_work_thread (c->c2.tls_multi, c->c1.work_thread, &c->c2.thread_context);
-
-  if (force_buffer_alloc && !c->c2.buffers)
-    do_init_buffers (c);
-
-  init_thread_context (c);
-#endif
-}
-
-static void
-do_close_pthread (struct context *c)
-{
-#ifdef USE_PTHREAD
-  if (c->sig->signal_received != SIGUSR1 && c->c1.work_thread && c->c1.work_thread_owned)
-    {
-      work_thread_close (c->c1.work_thread);
-      c->c1.work_thread = NULL;
-      c->c1.work_thread_owned = false;
-    }
-#endif
-}
-
-void
-enable_work_thread (struct context *c, void *arg, work_thread_event_loop_t event_loop)
-{
-#ifdef USE_PTHREAD
-  if (c->c1.work_thread)
-    work_thread_enable (c->c1.work_thread, arg, event_loop);
-#endif
-}
-
-void
-disable_work_thread (struct context *c)
-{
-#ifdef USE_PTHREAD
-  if (c->c1.work_thread)
-    work_thread_disable (c->c1.work_thread);
-#endif
-}
-
-/*
  * Fast I/O setup.  Fast I/O is an optimization which only works
  * if all of the following are true:
  *
@@ -2448,9 +2359,11 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
   /* do one-time inits, and possibily become a daemon here */
   do_init_first_time (c);
 
+#if 0
   /* start work thread here */
   if (c->mode == CM_P2P || c->mode == CM_TOP || child)
     do_init_pthread (c, child);
+#endif
 
   /*
    * Actually do UID/GID downgrade, and chroot, if requested.
@@ -2515,8 +2428,10 @@ close_instance (struct context *c)
 	/* close TUN/TAP device */
 	do_close_tun (c, false);
 
+#if 0
 	/* close work thread */
 	do_close_pthread (c);
+#endif
 
 	/* call plugin close functions and unload */
 	do_close_plugins (c);
@@ -2576,8 +2491,10 @@ inherit_context_child (struct context *dest,
 #endif
 #endif
 
+#if 0
 #ifdef USE_PTHREAD
   dest->c1.work_thread = src->c1.work_thread;
+#endif
 #endif
 
   /* options */
@@ -2658,8 +2575,10 @@ inherit_context_top (struct context *dest,
   dest->c2.link_socket_owned = false;
   dest->c2.buffers_owned = false;
 
+#if 0
 #ifdef USE_PTHREAD
   dest->c1.work_thread_owned = false;
+#endif
 #endif
 
   dest->c2.event_set = NULL;

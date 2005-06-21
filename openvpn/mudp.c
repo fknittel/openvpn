@@ -215,7 +215,7 @@ static int
 tunnel_server_udp_event_loop (void *arg)
 {
   struct multi_context *m = (struct multi_context *) arg;
-  int ret = WT_EVENT_LOOP_NORMAL;
+  int ret = 0;
 
   while (true)
     {
@@ -228,14 +228,6 @@ tunnel_server_udp_event_loop (void *arg)
 	  io_wait (&m->top, p2mp_iow_flags (m));
 	}
       MULTI_CHECK_SIG (m);
-
-      /* break from this event loop? */
-      if (is_work_thread_break (&m->top))
-	{
-	  ret = WT_EVENT_LOOP_BREAK;
-	  perf_pop ();
-	  break;
-	}
 
       /* timeout? */
       if (m->top.c2.event_set_status == ES_TIMEOUT)
@@ -285,9 +277,7 @@ tunnel_server_udp (struct context *top)
   initialization_sequence_completed (top, ISC_SERVER); /* --mode server --proto udp */
 
   /* per-packet event loop */
-  enable_work_thread (&multi.top, &multi, tunnel_server_udp_event_loop);
   tunnel_server_udp_event_loop (&multi);
-  disable_work_thread (&multi.top);
 
   /* shut down management interface */
   uninit_management_callback_multi (&multi);

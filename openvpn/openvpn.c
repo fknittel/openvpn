@@ -51,7 +51,7 @@ static int
 tunnel_point_to_point_event_loop (void *arg)
 {
   struct context *c = (struct context *) arg;
-  int ret = WT_EVENT_LOOP_NORMAL;
+  int ret = 0;
 
   while (true)
     {
@@ -64,14 +64,6 @@ tunnel_point_to_point_event_loop (void *arg)
       /* set up and do the I/O wait */
       io_wait (c, p2p_iow_flags (c));
       P2P_CHECK_SIG();
-
-      /* break from this event loop? */
-      if (is_work_thread_break (c))
-	{
-	  ret = WT_EVENT_LOOP_BREAK;
-	  perf_pop ();
-	  break;
-	}
 
       /* timeout? */
       if (c->c2.event_set_status == ES_TIMEOUT)
@@ -103,12 +95,10 @@ tunnel_point_to_point (struct context *c)
     return;
 
   init_management_callback_p2p (c);
-  enable_work_thread (c, c, tunnel_point_to_point_event_loop);
 
   /* main event loop */
   tunnel_point_to_point_event_loop ((void *)c);
 
-  disable_work_thread (c);
   uninit_management_callback ();
 
   /* tear down tunnel instance (unless --persist-tun) */

@@ -61,9 +61,6 @@
 #ifdef ENABLE_MANAGEMENT
 # define MTCP_MANAGEMENT  4
 #endif
-#ifdef USE_PTHREAD
-# define MTCP_WORK_THREAD 5
-#endif
 
 #define MTCP_N           16 /* upper bound on MTCP_x */
 
@@ -246,10 +243,6 @@ multi_tcp_wait (const struct context *c,
 #ifdef ENABLE_MANAGEMENT
   if (management)
     management_socket_set (management, mtcp->es, (void *)MTCP_MANAGEMENT, &mtcp->management_persist_flags);
-#endif
-#ifdef USE_PTHREAD
-  if (c->c1.work_thread)
-    work_thread_socket_set (c->c1.work_thread, mtcp->es, (void *)MTCP_WORK_THREAD, &mtcp->work_thread_persist_flags);
 #endif
   status = event_wait (mtcp->es, &c->c2.timeval, mtcp->esr, mtcp->maxevents);
   update_time ();
@@ -597,13 +590,11 @@ multi_tcp_action (struct multi_context *m, struct multi_instance *mi, int action
 static int
 multi_tcp_process_io (struct multi_context *m)
 {
-  int ret = WT_EVENT_LOOP_NORMAL;
+  int ret = 0;
   struct multi_tcp *mtcp = m->mtcp;
   int i;
 
-  multi_event_loop_reentered_reset (m); // JYFIXME
-
-  for (i = 0; i < mtcp->n_esr && !multi_event_loop_reentered (m); ++i) // JYFIXME
+  for (i = 0; i < mtcp->n_esr; ++i)
     {
       struct event_set_return *e = &mtcp->esr[i];
 
@@ -611,7 +602,7 @@ multi_tcp_process_io (struct multi_context *m)
       if (e->arg >= (void *)MTCP_N)
 	{
 	  struct multi_instance *mi = (struct multi_instance *) e->arg;
-	  if (multi_instance_ready (mi, TL_LIGHT))
+	  if (multi_instance_ready (mi))
 	    {
 	      if (e->rwflags & EVENT_WRITE)
 		multi_tcp_action (m, mi, TA_SOCKET_WRITE_READY, false);
@@ -627,11 +618,6 @@ multi_tcp_process_io (struct multi_context *m)
 	    case MTCP_MANAGEMENT:
 	      ASSERT (management);
 	      management_io (management);
-	      break;
-#endif
-#ifdef USE_PTHREAD
-	    case MTCP_WORK_THREAD:
-	      ret = WT_EVENT_LOOP_BREAK;
 	      break;
 #endif
 	    case MTCP_TUN: 	  /* incoming data on TUN? */
@@ -664,11 +650,11 @@ multi_tcp_process_io (struct multi_context *m)
   /*
    * Process queued mbuf packets destined for TCP socket
    */
-  if (!multi_event_loop_reentered (m)) { // JYFIXME
+  {
     struct multi_instance *mi;
     while (!IS_SIG (&m->top) && (mi = (struct multi_instance *) mbuf_peek (m->mbuf)) != NULL)
       {
-	if (multi_instance_ready (mi, TL_LIGHT))
+	if (multi_instance_ready (mi))
 	  multi_tcp_action (m, mi, TA_SOCKET_WRITE, true);
       }
   }
@@ -685,7 +671,7 @@ static int
 tunnel_server_tcp_event_loop (void *arg)
 {
   struct multi_context *m = (struct multi_context *) arg;
-  int ret = WT_EVENT_LOOP_NORMAL;
+  int ret = 0;
   int status;
 
   while (true)
@@ -714,11 +700,6 @@ tunnel_server_tcp_event_loop (void *arg)
 	  /* process the I/O which triggered select */
 	  ret = multi_tcp_process_io (m);
 	  MULTI_CHECK_SIG (m);
-	  if (ret == WT_EVENT_LOOP_BREAK)
-	    {
-	      perf_pop ();
-	      break;
-	    }
 	}
       else if (status == 0) /* timeout? */
 	{
@@ -760,9 +741,7 @@ tunnel_server_tcp (struct context *top)
   initialization_sequence_completed (top, ISC_SERVER); /* --mode server --proto tcp-server */
 
   /* per-packet event loop */
-  enable_work_thread (&multi.top, &multi, tunnel_server_tcp_event_loop);
   tunnel_server_tcp_event_loop (&multi);
-  disable_work_thread (&multi.top);
 
   /* shut down management interface */
   uninit_management_callback_multi (&multi);

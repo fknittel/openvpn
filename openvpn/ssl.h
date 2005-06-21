@@ -568,12 +568,6 @@ struct tls_multi
    */
   char *locked_cn;
 
-#ifdef USE_PTHREAD
-  /* multithread object for offloading high-latency functions */
-  struct work_thread *work_thread;
-  struct thread_context *thread_context;
-#endif
-
   /*
    * Our session objects.
    */
@@ -654,10 +648,6 @@ void tls_lock_common_name (struct tls_multi *multi);
 
 bool tls_authenticated (struct tls_multi *multi);
 void tls_deauthenticate (struct tls_multi *multi);
-
-#ifdef USE_PTHREAD
-void tls_set_work_thread (struct tls_multi *multi, struct work_thread *wt, struct thread_context *tc);
-#endif
 
 #ifdef TLS_CHANNEL
 

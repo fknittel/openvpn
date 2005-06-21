@@ -108,28 +108,8 @@ struct multi_context {
   struct multi_instance *earliest_wakeup;
   struct multi_instance **mpp_touched;
 
-#ifdef USE_PTHREAD
-  bool event_loop_reentered; // JYFIXME
-  struct thread_context thread_context;
-#endif
-
   struct context top;
 };
-
-#ifdef USE_PTHREAD
-/*
- * Used to save state in multi_context when we
- * go recursive in the event-loop after forwarding a work
- * thread command.
- */
-struct multi_context_thread_save {
-  struct multi_instance *pending;
-  struct multi_instance **mpp_touched;
-  int thread_level_mi;
-  int thread_level_pending;
-  struct buffer top_buf;
-};
-#endif
 
 /*
  * Host route
@@ -139,7 +119,7 @@ struct multi_route
   struct mroute_addr addr;
   struct multi_instance *instance;
 
-  /* must not collide with SP_, MGI_ (multi.c), or S_ (misc.h) flags */
+  /* must not collide with MGI_ (multi.c), or S_ (misc.h) flags */
 # define MULTI_ROUTE_CACHE   (1<<8)
 # define MULTI_ROUTE_AGEABLE (1<<9)
 # define MULTI_ROUTE_MASK    (MULTI_ROUTE_CACHE|MULTI_ROUTE_AGEABLE)
@@ -179,8 +159,6 @@ bool multi_process_timeout (struct multi_context *m, const unsigned int mpp_flag
 #define MPP_CONDITIONAL_PRE_SELECT     (1<<1)
 #define MPP_CLOSE_ON_SIGNAL            (1<<2)
 #define MPP_RECORD_TOUCH               (1<<3)
-#define MPP_CALL_STREAM_BUF_READ_SETUP (1<<4) // JYFIXME
-#define MPP_FORCE_PRE_SELECT           (1<<5)
 
 bool multi_process_post (struct multi_context *m, struct multi_instance *mi, const unsigned int flags);
 
@@ -210,37 +188,15 @@ void uninit_management_callback_multi (struct multi_context *m);
  * Is instance ready with respect to work thread locking?
  */
 static inline bool
-multi_instance_ready (const struct multi_instance *mi, const int thread_level)
+multi_instance_ready (const struct multi_instance *mi)
 {
-#ifdef USE_PTHREAD
-  return mi && (!mi->context.c1.work_thread || work_thread_ready_level (&mi->context.c2.thread_context, thread_level));
-#else
   return mi != NULL;
-#endif
 }
 
 static struct multi_instance *
-multi_instance_ref (struct multi_instance *mi, const int thread_level)
+multi_instance_ref (struct multi_instance *mi)
 {
-  return multi_instance_ready (mi, thread_level) ? mi : NULL;
-}
-
-static inline void 
-multi_event_loop_reentered_reset (struct multi_context *m) // JYFIXME
-{
-#ifdef USE_PTHREAD
-  m->event_loop_reentered = false;
-#endif
-}
-
-static inline bool
-multi_event_loop_reentered (struct multi_context *m) // JYFIXME
-{
-#ifdef USE_PTHREAD
-  return m->event_loop_reentered;
-#else
-  return false;
-#endif
+  return mi;
 }
 
 /*
@@ -270,7 +226,7 @@ multi_process_outgoing_link_pre (struct multi_context *m)
     mi = m->pending;
   else if (mbuf_defined (m->mbuf))
     mi = multi_get_queue (m->mbuf);
-  return multi_instance_ref (mi, TL_LIGHT);
+  return multi_instance_ref (mi);
 }
 
 /*
@@ -305,7 +261,7 @@ static inline bool
 multi_route_defined (const struct multi_context *m,
 		     const struct multi_route *r)
 {
-  if (r->instance->halt || !multi_instance_ready (r->instance, TL_LIGHT))
+  if (r->instance->halt || !multi_instance_ready (r->instance))
     return false;
   else if ((r->flags & MULTI_ROUTE_CACHE)
 	   && r->cache_generation != m->route_helper->cache_generation)
@@ -455,18 +411,7 @@ multi_process_outgoing_link_dowork (struct multi_context *m, struct multi_instan
 static inline void
 multi_set_pending (struct multi_context *m, struct multi_instance *mi)
 {
-  m->pending = multi_instance_ref (mi, TL_LIGHT);
-
-#if 0 && defined(USE_PTHREAD)// JYFIXME -- multi_set_pending
-  if (mi)
-    {
-      set_prefix (mi);
-      msg (M_INFO, "****** PENDING %d [%d]",
-	   m->pending != NULL,
-	   mi->context.c2.thread_context.thread_level);
-      clear_prefix ();
-    }
-#endif
+  m->pending = multi_instance_ref (mi);
 }
 
 #endif /* P2MP_SERVER */

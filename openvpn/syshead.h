@@ -385,13 +385,6 @@ socket_defined (const socket_descriptor_t sd)
 #endif
 
 /*
- * Pthread support is currently experimental
- */
-#if 0 // JYFIXME -- if defined, disable pthread
-#undef USE_PTHREAD
-#endif
-
-/*
  * Should we include OCC (options consistency check) code?
  */
 #ifndef ENABLE_SMALL
