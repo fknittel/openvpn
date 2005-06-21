@@ -3,6 +3,10 @@ Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
 
 $Id$
 
+2005.06.21 -- Version 2.0.1_rc4MT
+
+* Merged with 2.0.1_rc4
+	
 2005.06.21 -- Version 2.0.1_rc3MT1
 
 * Stripped out reentrancy-based thread model.
@@ -31,6 +35,11 @@ $Id$
 2004.12.30 -- Version 2.0-rc6aMT
 
 * Merged with 2.0-rc6a.
+
+2005.06.15 -- Version 2.0.1-rc4
+
+* Support LZO 2.0, including changes to configure script to
+  autodetect LZO version.
 
 2005.06.12 -- Version 2.0.1-rc3
 
