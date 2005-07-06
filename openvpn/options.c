@@ -73,6 +73,18 @@ const char title_string[] =
 #ifdef USE_PTHREAD
   " [PTHREAD]"
 #endif
+#ifdef ENABLE_IP_PKTINFO
+  " [MH]"
+#endif
+#ifdef USE_PF_INET6
+  " [PF_INET6]"
+#endif
+#ifdef USE_PF_UNIX
+  " [PF_UNIX]"
+#endif
+#ifdef USE_PAYLOAD_CONNTRACK
+  " [PAYLOAD_CONNTRACK]"
+#endif
   " built on " __DATE__
 ;
 
@@ -93,6 +105,12 @@ static const char usage_message[] =
   "--mode m        : Major mode, m = 'p2p' (default, point-to-point) or 'server'.\n"
   "--proto p       : Use protocol p for communicating with peer.\n"
   "                  p = udp (default), tcp-server, or tcp-client\n"
+#ifdef USE_PF_INET6
+  "                  p = udp6, tcp6-server, or tcp6-client (IPv6)\n"
+#endif
+#ifdef USE_PF_UNIX
+  "                  also (experimental) p = unix-dgram\n"
+#endif
   "--connect-retry n : For --proto tcp-client, number of seconds to wait\n"
   "                  between connection retries (default=%d).\n"
 #ifdef ENABLE_HTTP_PROXY
@@ -172,6 +190,9 @@ static const char usage_message[] =
   "--ping-timer-rem: Run the --ping-exit/--ping-restart timer only if we have a\n"
   "                  remote address.\n"
   "--ping n        : Ping remote once every n seconds over TCP/UDP port.\n"
+#if ENABLE_IP_PKTINFO
+  "--multihome     : Configure a multi-homed UDP server.\n"
+#endif
   "--fast-io       : (experimental) Optimize TUN/TAP/UDP writes.\n"
   "--remap-usr1 s  : On SIGUSR1 signals, remap signal (s='SIGHUP' or 'SIGTERM').\n"
   "--persist-tun   : Keep tun/tap device open across SIGUSR1 or --ping-restart.\n"
@@ -202,6 +223,10 @@ static const char usage_message[] =
 #endif
   "--mssfix [n]    : Set upper bound on TCP MSS, default = tun-mtu size\n"
   "                  or --fragment max value, whichever is lower.\n"
+#if USE_PAYLOAD_CONNTRACK
+  "--tcp-retrans n : Drop TCP retransmissions for n seconds time span max\n"
+  "                  (eg. n=60), useful for reliable links.\n"
+#endif
   "--sndbuf size   : Set the TCP/UDP send buffer size.\n"
   "--rcvbuf size   : Set the TCP/UDP receive buffer size.\n"
   "--txqueuelen n  : Set the tun/tap TX queue length to n (Linux only).\n"
@@ -532,6 +557,9 @@ init_options (struct options *o)
   o->link_mtu = LINK_MTU_DEFAULT;
   o->mtu_discover_type = -1;
   o->mssfix = MSSFIX_DEFAULT;
+#if USE_PAYLOAD_CONNTRACK
+  o->tcp_retrans = 0;
+#endif
   o->route_delay_window = 30;
   o->resolve_retry_seconds = RESOLV_RETRY_INFINITE;
 #ifdef ENABLE_OCC
@@ -998,6 +1026,9 @@ show_settings (const struct options *o)
   SHOW_BOOL (persist_key);
 
   SHOW_INT (mssfix);
+#if USE_PAYLOAD_CONNTRACK
+  SHOW_INT (tcp_retrans);
+#endif
   
 #if PASSTOS_CAPABILITY
   SHOW_BOOL (passtos);
@@ -1035,6 +1066,10 @@ show_settings (const struct options *o)
 #endif
   SHOW_INT (rcvbuf);
   SHOW_INT (sndbuf);
+
+#if ENABLE_IP_PKTINFO
+  SHOW_BOOL (multihome);
+#endif
 
 #ifdef ENABLE_HTTP_PROXY
   if (o->http_proxy_options)
@@ -1255,7 +1290,7 @@ options_postprocess (struct options *options, bool first_time)
    * Sanity check on TCP mode options
    */
 
-  if (options->connect_retry_defined && options->proto != PROTO_TCPv4_CLIENT)
+  if (options->connect_retry_defined && options->proto != PROTO_TCPv4_CLIENT && options->proto != PROTO_TCPv6_CLIENT)
     msg (M_USAGE, "--connect-retry doesn't make sense unless also used with --proto tcp-client");
 
   /*
@@ -1265,8 +1300,8 @@ options_postprocess (struct options *options, bool first_time)
     msg (M_USAGE, "only one of --tun-mtu or --link-mtu may be defined (note that --ifconfig implies --link-mtu %d)", LINK_MTU_DEFAULT);
 
 #ifdef ENABLE_OCC
-  if (options->proto != PROTO_UDPv4 && options->mtu_test)
-    msg (M_USAGE, "--mtu-test only makes sense with --proto udp");
+  if (!proto_is_udp(options->proto) && options->mtu_test)
+    msg (M_USAGE, "Options error: --mtu-test only makes sense with --proto udp or --proto udp6");
 #endif
 
   /*
@@ -1310,7 +1345,8 @@ options_postprocess (struct options *options, bool first_time)
 	  const char *remote = l->array[i].hostname;
 	  const int remote_port = l->array[i].port;
 
-	  if (string_defined_equal (options->local, remote)
+	  if (proto_is_net(options->proto)
+	      && string_defined_equal (options->local, remote)
 	      && options->local_port == remote_port)
 	    msg (M_USAGE, "--remote and --local addresses are the same");
 	
@@ -1377,16 +1413,18 @@ options_postprocess (struct options *options, bool first_time)
    */
 
 #ifdef ENABLE_FRAGMENT
-  if (options->proto != PROTO_UDPv4 && options->fragment)
-    msg (M_USAGE, "--fragment can only be used with --proto udp");
+  if (!proto_is_udp(options->proto) && options->fragment)
+    msg (M_USAGE, "--fragment can only be used with --proto udp or --proto udp6");
 #endif
+  if (!proto_is_net(options->proto) && !options->local)
+    msg (M_USAGE, "--local MUST be specified with --proto unix-dgram or --proto unix-stream");
 
 #ifdef ENABLE_OCC
-  if (options->proto != PROTO_UDPv4 && options->explicit_exit_notification)
+  if (!proto_is_udp(options->proto) && options->explicit_exit_notification)
     msg (M_USAGE, "--explicit-exit-notify can only be used with --proto udp");
 #endif
 
-  if (!options->remote_list && options->proto == PROTO_TCPv4_CLIENT)
+  if (!options->remote_list && (options->proto == PROTO_TCPv4_CLIENT||options->proto== PROTO_TCPv6_CLIENT))
     msg (M_USAGE, "--remote MUST be used in TCP Client mode");
 
 #ifdef ENABLE_HTTP_PROXY
@@ -1404,7 +1442,7 @@ options_postprocess (struct options *options, bool first_time)
     msg (M_USAGE, "--socks-proxy can not be used in TCP Server mode");
 #endif
 
-  if (options->proto == PROTO_TCPv4_SERVER && remote_list_len (options->remote_list) > 1)
+  if ((options->proto == PROTO_TCPv4_SERVER||options->proto == PROTO_TCPv6_SERVER) && remote_list_len (options->remote_list) > 1)
     msg (M_USAGE, "TCP server mode allows at most one --remote address");
 
 #if P2MP_SERVER
@@ -1429,8 +1467,8 @@ options_postprocess (struct options *options, bool first_time)
 	msg (M_USAGE, "--mode server only works with --dev tun or --dev tap");
       if (options->pull)
 	msg (M_USAGE, "--pull cannot be used with --mode server");
-      if (!(options->proto == PROTO_UDPv4 || options->proto == PROTO_TCPv4_SERVER))
-	msg (M_USAGE, "--mode server currently only supports --proto udp or --proto tcp-server");
+      if (!(proto_is_udp(options->proto) || options->proto == PROTO_TCPv4_SERVER || options->proto == PROTO_TCPv6_SERVER || options->proto == PROTO_UNIX_DGRAM))
+	msg (M_USAGE, "--mode server currently only supports --proto udp or --proto tcp-server (also udp6/tcp6)");
       if (!options->tls_server)
 	msg (M_USAGE, "--mode server requires --tls-server");
       if (options->remote_list)
@@ -1453,9 +1491,9 @@ options_postprocess (struct options *options, bool first_time)
 	msg (M_USAGE, "--inetd cannot be used with --mode server");
       if (options->ipchange)
 	msg (M_USAGE, "--ipchange cannot be used with --mode server (use --client-connect instead)");
-      if (!(options->proto == PROTO_UDPv4 || options->proto == PROTO_TCPv4_SERVER))
-	msg (M_USAGE, "--mode server currently only supports --proto udp or --proto tcp-server");
-      if (options->proto != PROTO_UDPv4 && (options->cf_max || options->cf_per))
+      if (!(proto_is_dgram(options->proto) || options->proto == PROTO_TCPv4_SERVER || options->proto == PROTO_TCPv6_SERVER ))
+	msg (M_USAGE, "--mode server currently only supports --proto udp or --proto tcp-server (also udp6/tcp6)");
+      if (!proto_is_udp(options->proto) && (options->cf_max || options->cf_per))
 	msg (M_USAGE, "--connect-freq only works with --mode server --proto udp.  Try --max-clients instead.");
       if (dev != DEV_TYPE_TAP && options->ifconfig_pool_netmask)
 	msg (M_USAGE, "The third parameter to --ifconfig-pool (netmask) is only valid in --dev tap mode");
@@ -1529,7 +1567,7 @@ options_postprocess (struct options *options, bool first_time)
   /*
    * Check consistency of replay options
    */
-  if ((options->proto != PROTO_UDPv4)
+  if ((!proto_is_udp(options->proto))
       && (options->replay_window != defaults.replay_window
 	  || options->replay_time != defaults.replay_time))
     msg (M_USAGE, "--replay-window only makes sense with --proto udp");
@@ -1658,7 +1696,7 @@ options_postprocess (struct options *options, bool first_time)
    */
   if (options->pull
       && options->ping_rec_timeout_action == PING_UNDEF
-      && options->proto == PROTO_UDPv4)
+      && proto_is_udp(options->proto))
     {
       options->ping_rec_timeout = PRE_PULL_INITIAL_PING_RESTART;
       options->ping_rec_timeout_action = PING_RESTART;
@@ -3021,6 +3059,13 @@ add_option (struct options *options,
       VERIFY_PERMISSION (OPT_P_GENERAL);
       options->mlock = true;
     }
+#if ENABLE_IP_PKTINFO
+  else if (streq (p[0], "multihome"))
+    {
+      VERIFY_PERMISSION (OPT_P_GENERAL);
+      options->multihome = true;
+    }
+#endif
   else if (streq (p[0], "verb") && p[1])
     {
       ++i;
@@ -3517,6 +3562,14 @@ add_option (struct options *options,
 	options->mssfix_default = true;
 
     }
+#if USE_PAYLOAD_CONNTRACK
+  else if (streq (p[0], "tcp-retrans") && p[1])
+    {
+      ++i;
+      VERIFY_PERMISSION (OPT_P_GENERAL);
+      options->tcp_retrans = positive_atoi (p[1]);
+    }
+#endif
 #ifdef ENABLE_OCC
   else if (streq (p[0], "disable-occ"))
     {

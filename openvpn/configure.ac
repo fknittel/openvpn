@@ -25,7 +25,7 @@ dnl Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.50)
 
-AC_INIT([OpenVPN], [2.0.1_rc5MT], [openvpn-users@lists.sourceforge.net], [openvpn])
+AC_INIT([OpenVPN], [2.0.1_rc5MT1], [openvpn-users@lists.sourceforge.net], [openvpn])
 AM_CONFIG_HEADER(config.h)
 AC_CONFIG_SRCDIR(syshead.h)
 
@@ -89,6 +89,12 @@ AC_ARG_ENABLE(fragment,
    [FRAGMENT="yes"]
 )
 
+AC_ARG_ENABLE(multihome,
+   [  --disable-multihome     Disable multi-homed UDP server support (--multihome)],
+   [MULTIHOME="$enableval"],
+   [MULTIHOME="yes"]
+)
+
 AC_ARG_ENABLE(debug,
    [  --disable-debug         Disable debugging support (disable gremlin and verb 7+ messages)],
    [DEBUG="$enableval"],
@@ -134,6 +140,24 @@ AC_ARG_ENABLE(strict-options,
    [  --enable-strict-options Enable strict options check between peers (debugging option)],
    [STRICT_OPTIONS="$enableval"],
    [STRICT_OPTIONS="no"]
+)
+
+AC_ARG_ENABLE(ipv6,
+   [  --disable-ipv6          Disable UDP/IPv6 support],
+   [PF_INET6="$enableval"],
+   [PF_INET6="yes"]
+)
+
+AC_ARG_ENABLE(unix-sockets,
+   [  --enable-unix-sockets   Enable PF_UNIX sockets links],
+   [PF_UNIX="$enableval"],
+   [PF_UNIX="no"]
+)
+
+AC_ARG_ENABLE(payload-conntrack,
+   [  --enable-payload-conntrack   Enable payload conntrack for eg. TCP retrans. dd for reliable links],
+   [PAYLOAD_CONNTRACK="$enableval"],
+   [PAYLOAD_CONNTRACK="no"]
 )
 
 AC_ARG_WITH(ssl-headers,
@@ -326,6 +350,11 @@ AC_CHECK_TYPE(
 	[AC_DEFINE(HAVE_CMSGHDR, 1, [struct cmsghdr needed for extended socket error support])],
 	[],
 	[#include "syshead.h"])
+AC_CHECK_TYPE(
+	[struct in_pktinfo],
+	[AC_DEFINE(HAVE_IN_PKTINFO, 1, [struct in_pktinfo needed for IP_PKTINFO support])],
+	[],
+	[#include "syshead.h"])
 
 AC_CHECK_SIZEOF(unsigned int)
 AC_CHECK_SIZEOF(unsigned long)
@@ -351,7 +380,7 @@ AC_CHECK_FUNCS(daemon chroot getpwnam setuid nice system getpid dup dup2 dnl
 	       getpass strerror syslog openlog mlockall getgrnam setgid dnl
 	       setgroups stat flock readv writev setsockopt getsockopt dnl
 	       setsid chdir gettimeofday putenv getpeername unlink dnl
-               poll chsize ftruncate)
+               poll chsize ftruncate sendmsg recvmsg)
 AC_CACHE_SAVE
 
 dnl Required library functions
@@ -551,6 +580,28 @@ dnl
    fi
 fi
 
+if test "$PF_UNIX" = "yes"; then
+   AC_CHECKING([for sys/un.h header file for PF_UNIX])
+   AC_CHECK_HEADER(sys/un.h, 
+	[AC_DEFINE(USE_PF_UNIX, 1, [Compile support for PF_UNIX sockets])],
+        [AC_MSG_ERROR([sys/un.h header not found.])]
+   )
+fi
+
+if test "$PF_INET6" = "yes"; then
+  AC_CHECKING([for struct sockaddr_in6 for IPv6 support])
+  AC_CHECK_TYPE(
+      [struct sockaddr_in6],
+      [AC_DEFINE(USE_PF_INET6, 1, [struct sockaddr_in6 is needed for IPv6 peer support])],
+      [],
+      [#include "syshead.h"])
+fi
+
+dnl enable payload-conntrack optimizations
+if test "$PAYLOAD_CONNTRACK" = "yes"; then
+   AC_DEFINE(USE_PAYLOAD_CONNTRACK, 1, [Enable payload conntrack])
+fi
+
 dnl enable multi-client mode
 if test "$MULTI" = "yes"; then
    AC_DEFINE(ENABLE_CLIENT_SERVER, 1, [Enable client/server capability])
@@ -574,6 +625,11 @@ fi
 dnl enable HTTP proxy
 if test "$HTTP_PROXY" = "yes"; then
    AC_DEFINE(ENABLE_HTTP_PROXY, 1, [Enable HTTP proxy support])
+fi
+
+dnl compile --multihome option
+if test "$MULTIHOME" = "yes"; then
+   AC_DEFINE(ENABLE_MULTIHOME, 1, [Enable multi-homed UDP server capability])
 fi
 
 dnl enable debugging

@@ -67,6 +67,7 @@ openvpn_SOURCES = \
 	options.c options.h \
 	otime.c otime.h \
 	packet_id.c packet_id.h \
+        payload.c payload.h payload-inline.h \
 	perf.c perf.h \
 	ping.c ping.h ping-inline.h \
 	plugin.c plugin.h \
@@ -120,7 +121,8 @@ EXTRA_DIST = \
 	contrib \
 	debug \
 	plugin \
-        management
+        management \
+	CHANGES.IPv6 README.IPv6
 
 dist-hook:
 	cd $(distdir) && for i in $(EXTRA_DIST) ; do find $$i -name CVS -type d -prune -exec rm -r '{}' ';' ; rm -f `find $$i -type f | grep -E '(^|\/)\.?\#|\~$$|\.s?o$$'` ; done

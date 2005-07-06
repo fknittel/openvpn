@@ -1,0 +1,157 @@
+# $Id$ #
+
+This README covers UDP/IPv6 v0.3.x ( --udp6 and --tcp6-xxxxxx  ) support for openvpn-2.0.
+
+Also, with address family "generalization" changes came local AF_UNIX socket
+support.
+
+Available under GPLv2 from 
+  http://www.irrigacion.gov.ar/juanjo/openvpn/
+
+See "Examples" section below for usage.
+
+* Working:
+  - tcp6->tcp6; tested on GNU/Linux
+  - upd6->upd6; tested on GNU/Linux, FreeBSD-5.3 and OpenBSD-3.6.
+  - upd4->upd6 (ipv6 bound); shows correctly mapped address (requires --float for now)
+  - unix-dgram->unix-dgram [AF_UNIX]
+    useful for implementing local proxies that can take full advantage
+    of POSIX filesystem permissions ( more powerfull access mechanisms
+    than inet, even for localhost)
+  - multihome [MH] for IPv4 and IPv6; compiles and works OK GNU/Linux
+    ipv4 MH support taken and adapted from James' original MH patch 
+
+* Experimental code (correctly #ifdef'd out):
+  - payload conntrack: intended for filtering TCP retransmissions over reliable links
+    1st tests indicate aprox ~20% speedups (very coarsly tested)
+
+* Setup:
+  ./configure --disable-ipv6        (enabled by default)
+  ./configure --enable-unix-sockets (disabled by default)
+  ./configure --enable-payload-conntrack (experimental code, not for production usage)
+  :
+
+* Usage:
+  For IPv6 just specify "-p upd6" an proper IPv6 hostnames, adapting the example
+  from man page ...
+
+  On may:
+    openvpn --proto udp6 --remote <june_IPv6_addr> --dev tun1 --ifconfig 10.4.0.1 10.4.0.2
+    --verb 5 --secret key
+
+  On june:
+    openvpn --proto udp6 --remote <may_IPv6_addr>  --dev tun1 --ifconfig 10.4.0.2 10.4.0.1
+    --verb 5 --secret key
+  
+  Same for --proto tcp6-client, tcp6-server.
+
+* Examples: some succesfully tested command lines 
+  BTW did you know that openvpn can succesfully negotiate to self
+  with --remote localhost ? VERY useful for fast testing.
+  
+  - IPv6 "normal" usage (+succesfully tested tunnel traffic) 
+    server# openvpn --proto udp6 ...
+      :
+      Thu Sep 23 22:15:48 2004 Peer Connection Initiated with [AF_INET6]fe80::205:5dff:fef1:1ceb%wlan0wds1:5000
+      :
+    client# openvpn --proto udp6 --remote fe80::240:5ff:feae:c851 ...
+      :
+      Thu Sep 23 22:13:19 2004 Peer Connection Initiated with [AF_INET6]fe80::240:5ff:feae:c851%wlan0wds0:5000
+      :
+
+  - IPv6 server, IPv4 client (more detailed)
+    server# openvpn --proto udp6 ...
+      :
+      Thu Sep 23 22:28:36 2004 UDPv6 link local (bound): [AF_INET6][undef]:5000
+      Thu Sep 23 22:28:36 2004 UDPv6 link remote: [AF_INET6][undef]
+      Thu Sep 23 22:28:50 2004 Peer Connection Initiated with [AF_INET6]::ffff:10.55.14.253:5000
+      Thu Sep 23 22:28:51 2004 Initialization Sequence Completed
+      Thu Sep 23 22:28:56 2004 WARNING: Actual Remote Options ('... proto UDPv4 ... ') \
+                               are inconsistent with Expected Remote Options ('... proto UDPv6 ...')
+
+    client# openvpn  --remote 10.55.14.254 ...  ### same default as now: --udp
+      :
+      Thu Sep 23 22:26:11 2004 UDPv4 link local (bound): [AF_INET][undef]:5000
+      Thu Sep 23 22:26:11 2004 UDPv4 link remote: [AF_INET]10.55.14.254:5000
+      Thu Sep 23 22:26:21 2004 Peer Connection Initiated with [AF_INET]10.55.14.254:5000
+      Thu Sep 23 22:26:21 2004 WARNING: Actual Remote Options ('... proto UDPv6 ...') \
+                               are inconsistent with Expected Remote Options ('... proto UDPv4 ...')
+      Thu Sep 23 22:26:22 2004 Initialization Sequence Completed
+
+  - IPv6 loopback
+    alone# openvpn --proto udp6 --remote ::1 ...
+      :
+      Wed Sep 22 13:03:07 2004 Peer Connection Initiated with [AF_INET6]::1:5000
+      :
+
+  - AF_UNIX toself
+    alone# openvpn --proto unix-dgram --local /tmp/o.s --remote /tmp/o.s --dev tun  ...
+      :
+      Thu Sep 23 16:37:27 2004 Peer Connection Initiated with [AF_UNIX]/tmp/o.s
+      :
+  
+  - AF_UNIX between to diff instances
+    peer1# openvpn --proto unix-dgram --local /tmp/o1.s --remote /tmp/o2.s
+    peer2# openvpn --proto unix-dgram --local /tmp/o2.s --remote /tmp/o1.s
+      :
+      Wed Sep 22 12:49:03 2004 Peer Connection Initiated with [AF_UNIX]/tmp/o1.s
+      :
+  
+
+* Main code changes summary:
+  - socket.h: New struct openvpn_sockaddr type that holds sockaddrs and pktinfo, 
+    (here I omitted #ifdef USE_PF_xxxx, see socket.h )
+
+    struct openvpn_sockaddr {
+    	union {
+    		struct sockaddr sa;
+    		struct sockaddr_in in;
+    		struct sockaddr_in6 in6;
+    		struct sockaddr_un un;
+    	} addr;
+    	union {
+    		struct in_pktinfo in;
+    		struct in6_pktinfo in6;
+    	} pi;	/* Multihome support for UDP */
+    };
+    
+    struct link_socket_addr
+    {
+            struct openvpn_sockaddr local;
+            struct openvpn_sockaddr remote;
+            struct openvpn_sockaddr actual;
+    };
+    
+    PRO: allows simple type overloading: local.addr.sa, local.addr.in, local.addr.in6 ... etc
+    (also local.pi.in and local.pi.in6)
+
+  - several function prototypes moved from sockaddr_in to openvpn_sockaddr 
+  - several new sockaddr functions needed to "generalize" AF_xxxx operations:
+    addr_copy(), addr_zero(), ...etc
+    proto_is_udp(), proto_is_dgram(), proto_is_net()
+
+* TODO: (!: fundamental, w: wanted, n: nah ... not critical, ?: need more thought)
+  [!]-  Implement comparison for mapped addesses: server in dual stack listening
+        IPv6 must permit incoming streams from allowed IPv4 peer (ie without --float).
+  [!]-  IPv6 with actual host resolution, currently only numerical (AI_NUMERICHOST)
+  [n]-  call socket() lately, after getaddrinfo() to decide IPv4 or IPv6 host 
+        (hence socket()) instead of needing -p {udp|udp6}
+        NOT ACTUALLY a big trouble, given that you _do_ setup both sides
+        (keys, certs, etc), using udp or udp6 is actually _another_ setup bit.
+  [?]-  integrate both IPv4 and IPv6 addr resolution with getaddrinfo instead of
+        venerable gethostbyname&friends, problem: horizontal portability (across
+        platforms) and vertical portab. (across versions)
+
+  DONE:
+     -  ./configure [ --disable-ipv6 ] [ --enable-unix-sockets ] 
+        map to USE_PF_INET6 and USE_PF_UNIX
+     -  merge MH patch
+     -  -p tcp6-client, -p tcp6-server
+     -  MH IPv6 support 
+ 
+--
+JuanJo Ciarlante   jjo|at|mendoza.gov.ar
+:                                                                  :
+.                                         Linux IP Aliasing author .
+.   Modular algo (AES et all) support for FreeSWAN/OpenSWAN author .
+:...       plus  other scattered free software bits in the wild ...:

@@ -178,6 +178,9 @@ struct options
 
   int mssfix;                   /* Upper bound on TCP MSS */
   bool mssfix_default;          /* true if --mssfix was supplied without a parameter */
+#if USE_PAYLOAD_CONNTRACK
+  int tcp_retrans;		/* Drop TCP retransmissions for this time window [secs] */
+#endif
 
 #if PASSTOS_CAPABILITY
   bool passtos;                  
@@ -222,6 +225,10 @@ struct options
   /* optimize TUN/TAP/UDP writes */
   bool fast_io;
 
+#if ENABLE_IP_PKTINFO
+  bool multihome;
+#endif
+ 
 #ifdef USE_LZO
   bool comp_lzo;
   bool comp_lzo_adaptive;

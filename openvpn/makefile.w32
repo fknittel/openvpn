@@ -101,6 +101,8 @@ HEADERS = \
 	options.h \
 	otime.h \
 	packet_id.h \
+	payload.h \
+	payload-inline.h \
 	perf.h \
 	ping-inline.h \
 	ping.h \
@@ -155,6 +157,7 @@ OBJS =  base64.o \
 	options.o \
 	otime.o \
 	packet_id.o \
+	payload.o \
 	perf.o \
 	ping.o \
 	plugin.o \

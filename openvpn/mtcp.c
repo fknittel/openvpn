@@ -159,7 +159,8 @@ multi_tcp_instance_specific_init (struct multi_context *m, struct multi_instance
   ASSERT (mi->context.c2.link_socket);
   ASSERT (mi->context.c2.link_socket->info.lsa);
   ASSERT (mi->context.c2.link_socket->mode == LS_MODE_TCP_ACCEPT_FROM);
-  if (!mroute_extract_sockaddr_in (&mi->real, &mi->context.c2.link_socket->info.lsa->actual, true))
+  ASSERT (mi->context.c2.link_socket->info.lsa->actual.addr.sa.sa_family == AF_INET);
+  if (!mroute_extract_openvpn_sockaddr (&mi->real, &mi->context.c2.link_socket->info.lsa->actual, true))
     {
       msg (D_MULTI_ERRORS, "MULTI TCP: TCP client address is undefined");
       return false;

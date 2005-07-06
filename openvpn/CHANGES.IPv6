@@ -1,0 +1,71 @@
+# $Id$ #
+* v0.3.12
+  . merged payload conntrack fixes (EXPERIMENTAL code, disabled by default),
+    almost no ipv6 related code changes.
+
+* v0.3.11
+  . woaooHOO: fixed udp6 MULTI (TLS server) !
+
+* v0.3.10
+  . stupid typo .... GRR
+
+* v0.3.9
+  . some MH code reorg., allow compilation with ./configure --disable-multihome
+
+* v0.3.8
+  . udp6 --multihome (MH) support fixed, tested OK! on GNU/Linux
+ 
+* v0.3.7
+  . udp6 MH support: compiles, not tested.
+
+* v0.3.6
+  . tested UDPv4 MH on GNU/Linux: works ok
+  . fix incorrect addr printing in print_link_sockaddr() 
+
+* v0.3.5
+  . internals: kill print_link_sockaddr_ex(), just use print_propiate flags
+   (just ~10lines change at all !)
+
+* v0.3.4
+  . make tcp4-client work against tcp6-server
+
+* v0.3.3
+  . freebsd: compute true addrlen for sendto() with af_addr_size()
+
+* v0.3.2
+  . minor changes to socket.[ch] (MH merge)
+
+* v0.3.1
+  . syshead.h MH changes were missing ; now it actually compiles MH support
+
+* v0.3.0
+  - tcp6-client, tcp6-server
+  - MH patch included by default from now on
+
+* v0.2.4-MH-0.0.6
+  - account for !AF_INET in addr_host() 
+  - removed S_IN, S_IN6 and S_UN casts; migrate last functions to openvpn_sockaddr: print*sockaddr*
+  - more openvpn_sockaddr migration (polishing), almost ready
+  - 3rd MH integration round
+
+* v0.2.4
+  - fix --route usage for udp6 (redirect-default-gateway semantics)
+
+* v0.2.3
+  - udp6 "correct" support for freebsd and openbsd
+    cc and tested OK: freebsd-5.3,openbsd-3.6 against GNU/Linux
+
+* v0.2.2
+  - IPv6 (--proto udp6), unix-socket support selectable at configure-time 
+    (all 4 combinations tested)
+    ./configure --disable-ipv6        (enabled by default)
+    ./configure --enable-unix-sockets (disabled by default)
+    (internal) USE_PF_INET6, USE_PF_UNIX from autoconf
+  - Change PROTO_x from #define to enum, to allow easier/cleaner support for
+    optional protocols
+  - Added IPV6_xxxx_HEADER_SIZE
+  
+* v0.2.1
+  First public release, see README.IPv6
+
+# vim: sw=2 

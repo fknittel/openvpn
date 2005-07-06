@@ -152,6 +152,10 @@
 #define D_STREAM_DEBUG       LOGLEV(9, 70, M_DEBUG)  /* show TCP stream debug info */
 #define D_WIN32_IO           LOGLEV(9, 70, M_DEBUG)  /* win32 I/O debugging info */
 
+#ifdef USE_PAYLOAD_CONNTRACK
+#define D_PAYLOAD_CONNTRACK  LOGLEV(9, 70, M_DEBUG)  /* show payload conntrack debug info */
+#endif
+
 #define D_SHAPER_DEBUG       LOGLEV(10, 70, M_DEBUG) /* show traffic shaper info */
 
 #define D_REGISTRY           LOGLEV(11, 70, M_DEBUG) /* win32 registry debugging info */

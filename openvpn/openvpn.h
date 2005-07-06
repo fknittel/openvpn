@@ -48,6 +48,10 @@
 #include "manage.h"
 #include "work.h"
 
+#ifdef USE_PAYLOAD_CONNTRACK
+#include "payload.h"
+#endif
+
 /*
  * Our global key schedules, packaged thusly
  * to facilitate --persist-key.
@@ -218,8 +222,8 @@ struct context_2
   struct link_socket_info *link_socket_info;
   const struct link_socket *accept_from; /* possibly do accept() on a parent link_socket */
 
-  struct sockaddr_in to_link_addr;	 /* IP address of remote */
-  struct sockaddr_in from;               /* address of incoming datagram */
+  struct openvpn_sockaddr *to_link_addr;	 /* IP address of remote */
+  struct openvpn_sockaddr from;               /* address of incoming datagram */
 
   /* MTU frame parameters */
   struct frame frame;
@@ -422,6 +426,10 @@ struct context_2
   struct event_timeout scheduled_exit;
 
 #endif /* P2MP */
+
+#ifdef USE_PAYLOAD_CONNTRACK
+  struct payload_context *payload_context;
+#endif
 };
 
 /*

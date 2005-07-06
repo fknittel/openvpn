@@ -54,13 +54,14 @@
 #define MR_ADDR_ETHER            1
 #define MR_ADDR_IPV4             2
 #define MR_ADDR_IPV6             3
-#define MR_ADDR_MASK             3
+#define MR_ADDR_UNIX             4
+#define MR_ADDR_MASK             7
 
 /* Address type mask indicating that port # is part of address */
-#define MR_WITH_PORT             4
+#define MR_WITH_PORT             8
 
 /* Address type mask indicating that netbits is part of address */
-#define MR_WITH_NETBITS          8
+#define MR_WITH_NETBITS          16
 
 struct mroute_addr {
   uint8_t len;      /* length of address */
@@ -97,6 +98,11 @@ unsigned int mroute_extract_addr_from_packet (struct mroute_addr *src,
 bool mroute_extract_sockaddr_in (struct mroute_addr *addr,
 				 const struct sockaddr_in *saddr,
 				 bool use_port);
+
+struct openvpn_sockaddr;
+int mroute_extract_openvpn_sockaddr(struct mroute_addr *addr, 
+				 const struct openvpn_sockaddr *osaddr,
+				 int use_port);
 
 bool mroute_learnable_address (const struct mroute_addr *addr);
 

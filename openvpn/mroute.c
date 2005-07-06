@@ -172,27 +172,69 @@ mroute_extract_addr_from_packet (struct mroute_addr *src,
  * to a struct mroute_addr (addr).
  */
 bool
-mroute_extract_sockaddr_in (struct mroute_addr *addr, const struct sockaddr_in *saddr, bool use_port)
+mroute_extract_openvpn_sockaddr (struct mroute_addr *addr, const struct openvpn_sockaddr *osaddr, bool use_port)
 {
-  if (saddr->sin_family == AF_INET)
-    {
+  switch (osaddr->addr.sa.sa_family) 
+  {
+    case AF_INET:
       if (use_port)
 	{
 	  addr->type = MR_ADDR_IPV4 | MR_WITH_PORT;
 	  addr->netbits = 0;
 	  addr->len = 6;
-	  memcpy (addr->addr, &saddr->sin_addr.s_addr, 4);
-	  memcpy (addr->addr + 4, &saddr->sin_port, 2);
+	  memcpy (addr->addr, &osaddr->addr.in.sin_addr.s_addr, 4);
+	  memcpy (addr->addr + 4, &osaddr->addr.in.sin_port, 2);
 	}
       else
 	{
 	  addr->type = MR_ADDR_IPV4;
 	  addr->netbits = 0;
 	  addr->len = 4;
-	  memcpy (addr->addr, &saddr->sin_addr.s_addr, 4);
+	  memcpy (addr->addr, &osaddr->addr.in.sin_addr.s_addr, 4);
 	}
       return true;
-    }
+    
+#ifdef USE_PF_INET6
+    case AF_INET6:
+      if (use_port)
+	{
+	  addr->type = MR_ADDR_IPV6 | MR_WITH_PORT;
+	  addr->netbits = 0;
+	  addr->len = 18;
+	  memcpy (addr->addr, &osaddr->addr.in6.sin6_addr, 16);
+	  memcpy (addr->addr + 16, &osaddr->addr.in6.sin6_port, 2);
+	}
+      else
+	{
+	  addr->type = MR_ADDR_IPV6;
+	  addr->netbits = 0;
+	  addr->len = 16;
+	  memcpy (addr->addr, &osaddr->addr.in6.sin6_addr, 16);
+	}
+      return true;
+#endif
+#ifdef USE_PF_UNIX
+    case AF_UNIX:
+      {
+	struct stat st_buf;
+	addr->type = MR_ADDR_UNIX;
+	addr->netbits = 0;
+	addr->len = 0 ;
+	memset(addr->addr, 0, sizeof (addr->addr));
+	if (stat(osaddr->addr.un.sun_path, &st_buf)<0)
+	{
+	  msg(M_WARN, "Could not stat(%s)", osaddr->addr.un.sun_path);
+	  return false;
+	}
+	msg(M_INFO, "MR_ADDR_UNIX stat(\"%s\"): (0x%08lx, %lu)", osaddr->addr.un.sun_path, (unsigned long)st_buf.st_dev, (unsigned long)st_buf.st_ino);
+	/* Put unix socket path {device,inode} numbers into addr (uniq and shorter that pathname */
+	memcpy(addr->addr, &st_buf.st_dev, sizeof(st_buf.st_dev));
+	memcpy(addr->addr+sizeof(st_buf.st_dev), &st_buf.st_ino, sizeof(st_buf.st_ino));
+	addr->len = sizeof(st_buf.st_dev) + sizeof (st_buf.st_ino) ;
+	return true;
+      }
+#endif
+  }
   return false;
 }
 
@@ -267,8 +309,59 @@ mroute_addr_print (const struct mroute_addr *ma,
 	  }
 	  break;
 	case MR_ADDR_IPV6:
+#ifdef USE_PF_INET6
+          {
+	    struct buffer buf;
+	    struct sockaddr_in6 sin6;
+	    int port;
+	    char buf6[INET6_ADDRSTRLEN] = "";
+	    memset(&sin6, 0, sizeof sin6);
+	    sin6.sin6_family = AF_INET6;
+	    buf_set_read (&buf, maddr.addr, maddr.len);
+            if (buf_read(&buf, &sin6.sin6_addr, sizeof (sin6.sin6_addr)))
+            {
+              if (getnameinfo((struct sockaddr *)&sin6, sizeof (struct sockaddr_in6),
+                                      buf6, sizeof (buf6), NULL, 0, NI_NUMERICHOST) != 0)
+                {
+                  buf_printf (&out, "MR_ADDR_IPV6 getnameinfo() err");
+                  break;
+		}
+              buf_puts (&out, buf6);
+	      if (maddr.type & MR_WITH_NETBITS)
+	        buf_printf (&out, "/%d", maddr.netbits);
+              if (maddr.type & MR_WITH_PORT)
+                {
+                  port = buf_read_u16 (&buf);
+                  if (port >= 0)
+                    buf_printf (&out, ":%d", port);
+                }
+	    }
+          }
+#else /* old pre IPV6 1-line code: */
 	  buf_printf (&out, "IPV6"); 
+#endif
 	  break;
+#ifdef USE_PF_UNIX
+	case MR_ADDR_UNIX:
+          {
+	    struct buffer buf;
+	    dev_t path_dev;
+	    ino_t path_ino;
+	    buf_set_read (&buf, maddr.addr, maddr.len);
+            if (!buf_read(&buf, &path_dev, sizeof path_dev))
+	      {
+		msg(M_WARN, "Error reading path_dev from MR_ADDR_UNIX addr");
+		break;
+	      }
+            if (!buf_read(&buf, &path_ino, sizeof path_ino))
+	      {
+		msg(M_WARN, "Error reading path_ino from MR_ADDR_UNIX addr");
+		break;
+	      }
+	    buf_printf (&out, "UNIX: (0x%08lx, %lu)", (unsigned long)path_dev, (unsigned long)path_ino);
+          }
+	  break;
+#endif
 	default:
 	  buf_printf (&out, "UNKNOWN"); 
 	  break;

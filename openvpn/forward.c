@@ -42,6 +42,7 @@
 #include "forward-inline.h"
 #include "occ-inline.h"
 #include "ping-inline.h"
+#include "payload-inline.h"
 
 /* show event wait debugging info */
 
@@ -499,6 +500,10 @@ process_coarse_timers (struct context *c)
 
   /* Should we ping the remote? */
   check_ping_send (c);
+
+#if USE_PAYLOAD_CONNTRACK
+  check_payload_gc(c);
+#endif
 }
 
 static void
@@ -558,17 +563,17 @@ static inline void
 socks_postprocess_incoming_link (struct context *c)
 {
   if (c->c2.link_socket->socks_proxy && c->c2.link_socket->info.proto == PROTO_UDPv4)
-    socks_process_incoming_udp (&c->c2.buf, &c->c2.from);
+    socks_process_incoming_udp (&c->c2.buf, &c->c2.from.addr.in);
 }
 
 static inline void
 socks_preprocess_outgoing_link (struct context *c,
-				struct sockaddr_in **to_addr,
+				struct openvpn_sockaddr **to_addr,
 				int *size_delta)
 {
   if (c->c2.link_socket->socks_proxy && c->c2.link_socket->info.proto == PROTO_UDPv4)
     {
-      *size_delta += socks_process_outgoing_udp (&c->c2.to_link, &c->c2.to_link_addr);
+      *size_delta += socks_process_outgoing_udp (&c->c2.to_link, c->c2.to_link_addr);
       *to_addr = &c->c2.link_socket->socks_relay;
     }
 }
@@ -880,12 +885,25 @@ process_incoming_tun (struct context *c)
        * us to examine the IPv4 header.
        */
       process_ipv4_header (c, PIPV4_PASSTOS|PIPV4_MSSFIX, &c->c2.buf);
+#if USE_PAYLOAD_CONNTRACK
+      if (c->c2.payload_context)
+      {
+	      if (payload_tcp_retrans_drop(c, &c->c2.buf))
+	      {
+		      buf_reset (&c->c2.to_link);
+		      goto out;
+	      }
+      }
+#endif
       encrypt_sign (c, true);
     }
   else
     {
       buf_reset (&c->c2.to_link);
     }
+#if USE_PAYLOAD_CONNTRACK
+out:
+#endif
   perf_pop ();
   gc_free (&gc);
 }
@@ -947,7 +965,7 @@ process_outgoing_link (struct context *c)
        * packet to remote over the TCP/UDP port.
        */
       int size = 0;
-      ASSERT (addr_defined (&c->c2.to_link_addr));
+      ASSERT (link_addr_defined (c->c2.to_link_addr));
 
 #ifdef ENABLE_DEBUG
       /* In gremlin-test mode, we may choose to drop this packet */
@@ -982,12 +1000,12 @@ process_outgoing_link (struct context *c)
 	  msg (D_LINK_RW, "%s WRITE [%d] to %s: %s",
 	       proto2ascii (c->c2.link_socket->info.proto, true),
 	       BLEN (&c->c2.to_link),
-	       print_sockaddr (&c->c2.to_link_addr, &gc),
+	       print_link_sockaddr (c->c2.to_link_addr, &gc),
 	       PROTO_DUMP (&c->c2.to_link, &gc));
 
 	  /* Packet send complexified by possible Socks5 usage */
 	  {
-	    struct sockaddr_in *to_addr = &c->c2.to_link_addr;
+	    struct openvpn_sockaddr *to_addr = c->c2.to_link_addr;
 #ifdef ENABLE_SOCKS
 	    int size_delta = 0;
 #endif
@@ -1021,7 +1039,7 @@ process_outgoing_link (struct context *c)
 	  if (size != BLEN (&c->c2.to_link))
 	    msg (D_LINK_ERRORS,
 		 "TCP/UDP packet was truncated/expanded on write to %s (tried=%d,actual=%d)",
-		 print_sockaddr (&c->c2.to_link_addr, &gc),
+		 print_link_sockaddr (c->c2.to_link_addr, &gc),
 		 BLEN (&c->c2.to_link),
 		 size);
 	}
@@ -1030,7 +1048,7 @@ process_outgoing_link (struct context *c)
     {
       if (c->c2.to_link.len > 0)
 	msg (D_LINK_ERRORS, "TCP/UDP packet too large on write to %s (tried=%d,max=%d)",
-	     print_sockaddr (&c->c2.to_link_addr, &gc),
+	     print_link_sockaddr (c->c2.to_link_addr, &gc),
 	     c->c2.to_link.len,
 	     EXPANDED_SIZE (&c->c2.frame));
     }

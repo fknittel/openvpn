@@ -362,7 +362,7 @@ extract_x509_field (const char *x509, const char *field_name, char *out, int siz
 static void
 setenv_untrusted (struct tls_session *session)
 {
-  setenv_sockaddr (session->opt->es, "untrusted", &session->untrusted_sockaddr, SA_IP_PORT);
+  setenv_sockaddr (session->opt->es, "untrusted", &session->untrusted_addr, SA_IP_PORT);
 }
 
 static void
@@ -1794,7 +1794,7 @@ static void
 write_control_auth (struct tls_session *session,
 		    struct key_state *ks,
 		    struct buffer *buf,
-		    struct sockaddr_in *to_link_addr,
+		    struct openvpn_sockaddr **to_link_addr,
 		    int opcode,
 		    int max_ack,
 		    bool prepend_ack)
@@ -1802,7 +1802,7 @@ write_control_auth (struct tls_session *session,
   uint8_t *header;
   struct buffer null = clear_buf ();
 
-  ASSERT (addr_defined (&ks->remote_addr));
+  ASSERT (link_addr_defined (&ks->remote_addr));
   ASSERT (reliable_ack_write
 	  (ks->rec_ack, buf, &ks->session_id_remote, max_ack, prepend_ack));
   ASSERT (session_id_write_prepend (&session->session_id, buf));
@@ -1814,7 +1814,7 @@ write_control_auth (struct tls_session *session,
       openvpn_encrypt (buf, null, &session->tls_auth, NULL);
       ASSERT (swap_hmac (buf, &session->tls_auth, false));
     }
-  *to_link_addr = ks->remote_addr;
+  *to_link_addr = &ks->remote_addr;
 }
 
 /*
@@ -1823,7 +1823,7 @@ write_control_auth (struct tls_session *session,
 static bool
 read_control_auth (struct buffer *buf,
 		   const struct crypto_options *co,
-		   const struct sockaddr_in *from)
+		   const struct openvpn_sockaddr *from)
 {
   struct gc_arena gc = gc_new ();
 
@@ -1836,7 +1836,7 @@ read_control_auth (struct buffer *buf,
 	{
 	  msg (D_TLS_ERRORS,
 	       "TLS Error: cannot locate HMAC in incoming packet from %s",
-	       print_sockaddr (from, &gc));
+	       print_link_sockaddr (from, &gc));
 	  gc_free (&gc);
 	  return false;
 	}
@@ -1848,7 +1848,7 @@ read_control_auth (struct buffer *buf,
 	{
 	  msg (D_TLS_ERRORS,
 	       "TLS Error: incoming packet authentication failed from %s",
-	       print_sockaddr (from, &gc));
+	       print_link_sockaddr (from, &gc));
 	  gc_free (&gc);
 	  return false;
 	}
@@ -2737,7 +2737,7 @@ static bool
 tls_process (struct tls_multi *multi,
 	     struct tls_session *session,
 	     struct buffer *to_link,
-	     struct sockaddr_in *to_link_addr,
+	     struct openvpn_sockaddr **to_link_addr,
 	     struct link_socket_info *to_link_socket_info,
 	     interval_t *wakeup)
 {
@@ -3172,7 +3172,7 @@ error:
 bool
 tls_multi_process (struct tls_multi *multi,
 		   struct buffer *to_link,
-		   struct sockaddr_in *to_link_addr,
+		   struct openvpn_sockaddr **to_link_addr,
 		   struct link_socket_info *to_link_socket_info,
 		   interval_t *wakeup)
 {
@@ -3205,7 +3205,7 @@ tls_multi_process (struct tls_multi *multi,
 
       /* set initial remote address */
       if (i == TM_ACTIVE && ks->state == S_INITIAL &&
-	  addr_defined (&to_link_socket_info->lsa->actual))
+	  link_addr_defined (&to_link_socket_info->lsa->actual))
 	ks->remote_addr = to_link_socket_info->lsa->actual;
 
       dmsg (D_TLS_DEBUG,
@@ -3214,15 +3214,28 @@ tls_multi_process (struct tls_multi *multi,
 	   state_name (ks->state),
 	   session_id_print (&session->session_id, &gc),
 	   session_id_print (&ks->session_id_remote, &gc),
-	   print_sockaddr (&ks->remote_addr, &gc));
+	   print_link_sockaddr (&ks->remote_addr, &gc));
 
-      if (ks->state >= S_INITIAL && addr_defined (&ks->remote_addr))
+      if (ks->state >= S_INITIAL && link_addr_defined (&ks->remote_addr))
 	{
+	  struct openvpn_sockaddr *tla = NULL;
+
 	  update_time ();
 
-	  if (tls_process (multi, session, to_link, to_link_addr,
+	  if (tls_process (multi, session, to_link, &tla,
 			   to_link_socket_info, wakeup))
 	    active = true;
+
+	  /*
+	   * If tls_process produced an outgoing packet,
+	   * return the openvpn_sockaddr object (which
+	   * contains the outgoing address).
+	   */
+	  if (tla)
+	    {
+	      multi->to_link_addr = *tla;
+	      *to_link_addr = &multi->to_link_addr;
+	    }
 
 	  /*
 	   * If tls_process hits an error:
@@ -3343,7 +3356,7 @@ tls_multi_process (struct tls_multi *multi,
 
 bool
 tls_pre_decrypt (struct tls_multi *multi,
-		 struct sockaddr_in *from,
+		 const struct openvpn_sockaddr *from,
 		 struct buffer *buf,
 		 struct crypto_options *opt)
 {
@@ -3385,7 +3398,7 @@ tls_pre_decrypt (struct tls_multi *multi,
 	      if (DECRYPT_KEY_ENABLED (multi, ks)
 		  && key_id == ks->key_id
 		  && ks->authenticated
-		  && addr_port_match(from, &ks->remote_addr))
+		  && link_addr_port_match(from, &ks->remote_addr))
 		{
 		  /* return appropriate data channel decrypt key in opt */
 		  opt->key_ctx_bi = &ks->key;
@@ -3398,7 +3411,7 @@ tls_pre_decrypt (struct tls_multi *multi,
 		  ks->n_bytes += buf->len;
 		  dmsg (D_TLS_DEBUG,
 		       "TLS: data channel, key_id=%d, IP=%s",
-		       key_id, print_sockaddr (from, &gc));
+		       key_id, print_link_sockaddr (from, &gc));
 		  gc_free (&gc);
 		  return ret;
 		}
@@ -3418,7 +3431,7 @@ tls_pre_decrypt (struct tls_multi *multi,
 
 	  msg (D_TLS_ERRORS,
 	       "TLS Error: local/remote TLS keys are out of sync: %s [%d]",
-	       print_sockaddr (from, &gc), key_id);
+	       print_link_sockaddr (from, &gc), key_id);
 	  goto error;
 	}
       else			  /* control channel packet */
@@ -3432,7 +3445,7 @@ tls_pre_decrypt (struct tls_multi *multi,
 	    {
 	      msg (D_TLS_ERRORS,
 		   "TLS Error: unknown opcode received from %s op=%d",
-		   print_sockaddr (from, &gc), op);
+		   print_link_sockaddr (from, &gc), op);
 	      goto error;
 	    }
 
@@ -3447,7 +3460,7 @@ tls_pre_decrypt (struct tls_multi *multi,
 		{
 		  msg (D_TLS_ERRORS,
 		       "TLS Error: client->client or server->server connection attempted from %s",
-		       print_sockaddr (from, &gc));
+		       print_link_sockaddr (from, &gc));
 		  goto error;
 		}
 	    }
@@ -3456,7 +3469,7 @@ tls_pre_decrypt (struct tls_multi *multi,
 	   * Authenticate Packet
 	   */
 	  dmsg (D_TLS_DEBUG, "TLS: control channel, op=%s, IP=%s",
-	       packet_opcode_name (op), print_sockaddr (from, &gc));
+	       packet_opcode_name (op), print_link_sockaddr (from, &gc));
 
 	  /* get remote session-id */
 	  {
@@ -3466,7 +3479,7 @@ tls_pre_decrypt (struct tls_multi *multi,
 	      {
 		msg (D_TLS_ERRORS,
 		     "TLS Error: session-id not found in packet from %s",
-		     print_sockaddr (from, &gc));
+		     print_link_sockaddr (from, &gc));
 		goto error;
 	      }
 	  }
@@ -3483,9 +3496,9 @@ tls_pre_decrypt (struct tls_multi *multi,
 		   state_name (ks->state),
 		   session_id_print (&session->session_id, &gc),
 		   session_id_print (&sid, &gc),
-		   print_sockaddr (from, &gc),
+		   print_link_sockaddr (from, &gc),
 		   session_id_print (&ks->session_id_remote, &gc),
-		   print_sockaddr (&ks->remote_addr, &gc));
+		   print_link_sockaddr (&ks->remote_addr, &gc));
 
 	      if (session_id_equal (&ks->session_id_remote, &sid))
 		/* found a match */
@@ -3530,7 +3543,7 @@ tls_pre_decrypt (struct tls_multi *multi,
 		    {
 		      msg (D_TLS_ERRORS,
 			   "TLS Error: Cannot accept new session request from %s due to --single-session [1]",
-			   print_sockaddr (from, &gc));
+			   print_link_sockaddr (from, &gc));
 		      goto error;
 		    }
 
@@ -3546,13 +3559,13 @@ tls_pre_decrypt (struct tls_multi *multi,
 
 		  msg (D_TLS_DEBUG_LOW,
 		       "TLS: Initial packet from %s, sid=%s",
-		       print_sockaddr (from, &gc),
+		       print_link_sockaddr (from, &gc),
 		       session_id_print (&sid, &gc));
 
 		  do_burst = true;
 		  new_link = true;
 		  i = TM_ACTIVE;
-		  session->untrusted_sockaddr = *from;
+		  session->untrusted_addr = *from;
 		}
 	    }
 
@@ -3572,7 +3585,7 @@ tls_pre_decrypt (struct tls_multi *multi,
 		{
 		  msg (D_TLS_ERRORS,
 		       "TLS Error: Cannot accept new session request from %s due to --single-session [2]",
-		       print_sockaddr (from, &gc));
+		       print_link_sockaddr (from, &gc));
 		  goto error;
 		}
 	      
@@ -3595,11 +3608,11 @@ tls_pre_decrypt (struct tls_multi *multi,
 	       */
 	      msg (D_TLS_DEBUG_LOW,
 		   "TLS: new session incoming connection from %s",
-		   print_sockaddr (from, &gc));
+		   print_link_sockaddr (from, &gc));
 
 	      new_link = true;
 	      i = TM_UNTRUSTED;
-	      session->untrusted_sockaddr = *from;
+	      session->untrusted_addr = *from;
 	    }
 	  else
 	    {
@@ -3613,7 +3626,7 @@ tls_pre_decrypt (struct tls_multi *multi,
 		{
 		  msg (D_TLS_ERRORS,
 		       "TLS Error: Unroutable control packet received from %s (si=%d op=%s)",
-		       print_sockaddr (from, &gc),
+		       print_link_sockaddr (from, &gc),
 		       i,
 		       packet_opcode_name (op));
 		  goto error;
@@ -3622,10 +3635,10 @@ tls_pre_decrypt (struct tls_multi *multi,
 	      /*
 	       * Verify remote IP address
 	       */
-	      if (!new_link && !addr_port_match (&ks->remote_addr, from))
+	      if (!new_link && !link_addr_port_match (&ks->remote_addr, from))
 		{
 		  msg (D_TLS_ERRORS, "TLS Error: Received control packet from unexpected IP addr: %s",
-		      print_sockaddr (from, &gc));
+		      print_link_sockaddr (from, &gc));
 		  goto error;
 		}
 
@@ -3687,11 +3700,11 @@ tls_pre_decrypt (struct tls_multi *multi,
 		ks->remote_addr = *from;
 		++multi->n_sessions;
 	      }
-	    else if (!addr_port_match (&ks->remote_addr, from))
+	    else if (!link_addr_port_match (&ks->remote_addr, from))
 	      {
 		msg (D_TLS_ERRORS,
 		     "TLS Error: Existing session control channel packet from unknown IP address: %s",
-		     print_sockaddr (from, &gc));
+		     print_link_sockaddr (from, &gc));
 		goto error;
 	      }
 
@@ -3788,7 +3801,7 @@ tls_pre_decrypt (struct tls_multi *multi,
  */
 bool
 tls_pre_decrypt_lite (const struct tls_auth_standalone *tas,
-		      const struct sockaddr_in *from,
+		      const struct openvpn_sockaddr *from,
 		      const struct buffer *buf)
 {
   struct gc_arena gc = gc_new ();
@@ -3816,7 +3829,7 @@ tls_pre_decrypt_lite (const struct tls_auth_standalone *tas,
 	   */
 	  dmsg (D_TLS_STATE_ERRORS,
 	       "TLS State Error: No TLS state for client %s, opcode=%d",
-	       print_sockaddr (from, &gc),
+	       print_link_sockaddr (from, &gc),
 	       op);
 	  goto error;
 	}
@@ -3826,7 +3839,7 @@ tls_pre_decrypt_lite (const struct tls_auth_standalone *tas,
 	  dmsg (D_TLS_STATE_ERRORS,
 	       "TLS State Error: Unknown key ID (%d) received from %s -- 0 was expected",
 	       key_id,
-	       print_sockaddr (from, &gc));
+	       print_link_sockaddr (from, &gc));
 	  goto error;
 	}
 
@@ -3835,7 +3848,7 @@ tls_pre_decrypt_lite (const struct tls_auth_standalone *tas,
 	  dmsg (D_TLS_STATE_ERRORS,
 	       "TLS State Error: Large packet (size %d) received from %s -- a packet no larger than %d bytes was expected",
 	       buf->len,
-	       print_sockaddr (from, &gc),
+	       print_link_sockaddr (from, &gc),
 	       EXPANDED_SIZE_DYNAMIC (&tas->frame));
 	  goto error;
 	}

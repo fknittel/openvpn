@@ -121,6 +121,11 @@ struct openvpn_tcphdr {
 #define	OPENVPN_TCPOPT_MAXSEG  2
 #define OPENVPN_TCPOLEN_MAXSEG 4
 
+#define	OPENVPN_TCPOPT_WSCALE	3
+#define	OPENVPN_TCPOPT_SACK	5
+#define OPENVPN_TCPOPT_TIMESTAMP	8
+#define	OPENVPN_TCPOPT_ANY	255
+
 /*
  * The following macro is used to update an
  * internet checksum.  "acc" is a 32-bit

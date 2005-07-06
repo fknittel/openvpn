@@ -57,6 +57,14 @@
 #include <sys/socket.h>
 #endif
 
+#ifdef USE_PF_UNIX
+#include <sys/un.h>
+#endif
+
+#ifdef USE_PF_INET6
+#include <netinet/in.h>
+#endif
+
 #ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
 #endif
@@ -287,6 +295,15 @@
 #define EXTENDED_SOCKET_ERROR_CAPABILITY 1
 #else
 #define EXTENDED_SOCKET_ERROR_CAPABILITY 0
+#endif
+
+/*
+ * Does this platform support linux-style IP_PKTINFO?
+ */
+#if defined(ENABLE_MULTIHOME) && defined(HAVE_IN_PKTINFO) && defined(IP_PKTINFO) && defined(HAVE_MSGHDR) && defined(HAVE_CMSGHDR) && defined(HAVE_IOVEC) && defined(CMSG_FIRSTHDR) && defined(CMSG_NXTHDR) && defined(HAVE_RECVMSG) && defined(HAVE_SENDMSG)
+#define ENABLE_IP_PKTINFO 1
+#else
+#define ENABLE_IP_PKTINFO 0
 #endif
 
 /*

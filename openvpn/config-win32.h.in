@@ -41,7 +41,9 @@
 #define random rand
 #define srandom srand
 
+/* Missing on Windows */
 typedef unsigned long in_addr_t;
+typedef unsigned short int sa_family_t;
 
 #ifndef _SSIZE_T_
 #define _SSIZE_T_

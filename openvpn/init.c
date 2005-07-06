@@ -683,7 +683,6 @@ do_init_tun (struct context *c)
 			   addr_host (&c->c1.link_socket_addr.remote),
 			   !c->options.ifconfig_nowarn,
 			   c->c2.es);
-
   init_tun_post (c->c1.tuntap,
 		 &c->c2.frame,
 		 &c->options.tuntap_options);
@@ -1040,15 +1039,29 @@ socket_restart_pause (struct context *c)
   switch (c->options.proto)
     {
     case PROTO_UDPv4:
+#ifdef USE_PF_INET6
+    case PROTO_UDPv6:
+#endif
       if (proxy)
 	sec = c->options.connect_retry_seconds;
       break;
+#ifdef USE_PF_INET6
+    case PROTO_TCPv6_SERVER:
+#endif
     case PROTO_TCPv4_SERVER:
       sec = 1;
       break;
+#ifdef USE_PF_INET6
+    case PROTO_TCPv6_CLIENT:
+#endif
     case PROTO_TCPv4_CLIENT:
       sec = c->options.connect_retry_seconds;
       break;
+#ifdef USE_PF_UNIX
+    case PROTO_UNIX_DGRAM:
+      sec = 2;
+      break;
+#endif
     }
 
 #ifdef ENABLE_DEBUG
@@ -1647,6 +1660,17 @@ do_init_mssfix (struct context *c)
     }
 }
 
+#ifdef USE_PAYLOAD_CONNTRACK
+static void
+do_init_payload(struct context *c)
+{
+  if (c->options.tcp_retrans)
+    {
+      c->c2.payload_context = payload_new(c->options.tcp_retrans);
+    }
+}
+
+#endif
 /*
  * Allocate our socket object.
  */
@@ -1664,6 +1688,13 @@ do_link_socket_new (struct context *c)
 static void
 do_init_socket_1 (struct context *c, int mode)
 {
+  unsigned int flags = 0;
+
+#if ENABLE_IP_PKTINFO
+  if (c->options.multihome)
+    flags |= SF_USE_IP_PKTINFO;
+#endif
+  
   link_socket_init_phase1 (c->c2.link_socket,
 			   c->options.local,
 			   c->c1.remote_list,
@@ -1690,7 +1721,8 @@ do_init_socket_1 (struct context *c, int mode)
 			   c->options.connect_retry_seconds,
 			   c->options.mtu_discover_type,
 			   c->options.rcvbuf,
-			   c->options.sndbuf);
+			   c->options.sndbuf,
+			   flags);
 }
 
 /*
@@ -1906,6 +1938,21 @@ do_close_fragment (struct context *c)
 }
 #endif
 
+#ifdef USE_PAYLOAD_CONNTRACK
+/*
+ * Close payload conn tracker
+ */
+static void
+do_close_payload (struct context *c)
+{
+  if (c->c2.payload_context)
+  {
+    payload_free (c->c2.payload_context);
+    c->c2.payload_context = NULL;
+  }
+}
+#endif
+
 /*
  * Open and close our event objects.
  */
@@ -2029,7 +2076,7 @@ do_setup_fast_io (struct context *c)
 #ifdef WIN32
       msg (M_INFO, "NOTE: --fast-io is disabled since we are running on Windows");
 #else
-      if (c->options.proto != PROTO_UDPv4)
+      if (!proto_is_udp(c->options.proto))
 	msg (M_INFO, "NOTE: --fast-io is disabled since we are not using UDP");
       else
 	{
@@ -2225,7 +2272,7 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
   /* link_socket_mode allows CM_CHILD_TCP
      instances to inherit acceptable fds
      from a top-level parent */
-  if (c->options.proto == PROTO_TCPv4_SERVER)
+  if (c->options.proto == PROTO_TCPv4_SERVER || c->options.proto == PROTO_TCPv6_SERVER)
     {
       if (c->mode == CM_TOP)
 	link_socket_mode = LS_MODE_TCP_LISTEN;
@@ -2338,6 +2385,9 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
   /* initialize dynamic MTU variable */
   do_init_mssfix (c);
 
+#ifdef USE_PAYLOAD_CONNTRACK
+  do_init_payload(c);
+#endif
   /* bind the TCP/UDP socket */
   if (c->mode == CM_P2P || c->mode == CM_TOP || c->mode == CM_CHILD_TCP)
     do_init_socket_1 (c, link_socket_mode);
@@ -2437,6 +2487,9 @@ close_instance (struct context *c)
 	do_close_pthread (c);
 #endif
 
+#ifdef USE_PAYLOAD_CONNTRACK
+	do_close_payload(c);
+#endif
 	/* call plugin close functions and unload */
 	do_close_plugins (c);
 
@@ -2465,17 +2518,7 @@ inherit_context_child (struct context *dest,
 {
   CLEAR (*dest);
 
-  switch (src->options.proto)
-    {
-    case PROTO_UDPv4:
-      dest->mode = CM_CHILD_UDP;
-      break;
-    case PROTO_TCPv4_SERVER:
-      dest->mode = CM_CHILD_TCP;
-      break;
-    default:
-      ASSERT (0);
-    }
+  dest->mode = proto_is_dgram(src->options.proto)? CM_CHILD_UDP : CM_CHILD_TCP;
 
   dest->first_time = false;
 
@@ -2586,7 +2629,7 @@ inherit_context_top (struct context *dest,
 #endif
 
   dest->c2.event_set = NULL;
-  if (src->options.proto == PROTO_UDPv4)
+  if (proto_is_dgram(src->options.proto))
     do_event_set_init (dest, false);
 }
 
