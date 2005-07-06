@@ -3,6 +3,10 @@ Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
 
 $Id$
 
+2005.07.05 -- Version 2.0.1_rc5MT
+
+* Merged with 2.0.1_rc5
+
 2005.07.05 -- Version 2.0.1_rc4MT1
 
 * Removed ks->wrote_ciphertext from ssl.[ch]
@@ -39,6 +43,20 @@ $Id$
 2004.12.30 -- Version 2.0-rc6aMT
 
 * Merged with 2.0-rc6a.
+
+2005.07.04 -- Version 2.0.1-rc5
+
+* Windows version will log a for-further-info URL when
+  initialization sequence is completed with errors.
+* Added DLOPEN_PAM parameter to plugin/auth-pam/Makefile
+  to control whether auth-pam plugin links to PAM via
+  dlopen or -lpam.  By default, DLOPEN_PAM=1 so pre-existing
+  behavior should be preserved.  DLOPEN_PAM=0 is the preferred
+  setting to link via -lpam, but DLOPEN_PAM=1 works around
+  a bug in SuSE 9.1 (and possibly other distros as well)
+  where the PAM modules are not linked with -lpam.  See
+  thread on openvpn-devel for more discussion about this
+  patch (Simon Perreault).
 
 2005.06.15 -- Version 2.0.1-rc4
 
