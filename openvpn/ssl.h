@@ -378,8 +378,6 @@ struct key_state
    * If bad username/password, TLS connection will come up but 'authenticated' will be false.
    */
   bool authenticated;
-
-  bool wrote_ciphertext;
 };
 
 /*

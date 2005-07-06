@@ -414,7 +414,7 @@ multi_tcp_dispatch (struct multi_context *m, struct multi_instance *mi, const in
       clear_prefix ();
 
 #if 1
-      if (!IS_SIG (&mi->context)) // JYFIXME
+      if (!IS_SIG (&mi->context))
 	{
 	  multi_process_incoming_link (m, mi, mpp_flags);
 	  if (!IS_SIG (&mi->context))

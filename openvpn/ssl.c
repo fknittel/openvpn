@@ -1299,7 +1299,6 @@ key_state_write_ciphertext (struct tls_multi *multi, struct key_state *ks, struc
   int ret;
   perf_push (PERF_BIO_WRITE_CIPHERTEXT);
   ret = bio_write (multi, ks->ct_in, BPTR(buf), BLEN(buf), "tls_write_ciphertext");
-  ks->wrote_ciphertext = true;
   bio_write_post (ret, buf);
   perf_pop ();
   return ret;
@@ -1311,12 +1310,7 @@ key_state_read_plaintext (struct tls_multi *multi, struct key_state *ks, struct 
 {
   int ret = 0;
   perf_push (PERF_BIO_READ_PLAINTEXT);
-  if (ks->wrote_ciphertext)
-    {
-      ret = bio_read (multi, ks->ssl_bio, buf, maxlen, BR_TRY_THREAD, "tls_read_plaintext");
-      if (ret == 0)
-	ks->wrote_ciphertext = false;
-    }
+  ret = bio_read (multi, ks->ssl_bio, buf, maxlen, BR_TRY_THREAD, "tls_read_plaintext");
   perf_pop ();
   return ret;
 }

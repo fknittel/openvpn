@@ -3,6 +3,10 @@ Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
 
 $Id$
 
+2005.07.05 -- Version 2.0.1_rc4MT1
+
+* Removed ks->wrote_ciphertext from ssl.[ch]
+
 2005.06.21 -- Version 2.0.1_rc4MT
 
 * Merged with 2.0.1_rc4
