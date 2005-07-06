@@ -3,52 +3,14 @@ Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
 
 $Id$
 
-2005.07.05 -- Version 2.0.1_rc5MT1
+2005.07.05 -- Version 2.1-alpha1
 
+* Added some preliminary infrastructure code to handle multithreading.
 * Added IPv6 support (--udp6) and PF_UNIX (--unix-dgram)
-  See README.IPv6 and CHANGES.IPv6 for details (Juanjo Ciarlante)
-
-2005.07.05 -- Version 2.0.1_rc5MT
-
-* Merged with 2.0.1_rc5
-
-2005.07.05 -- Version 2.0.1_rc4MT1
-
-* Removed ks->wrote_ciphertext from ssl.[ch]
-
-2005.06.21 -- Version 2.0.1_rc4MT
-
-* Merged with 2.0.1_rc4
+  See README.IPv6 and CHANGES.IPv6 for details (Juanjo Ciarlante).
+* Added UDP multihome support.
+* Merged with 2.0.1_rc5.
 	
-2005.06.21 -- Version 2.0.1_rc3MT1
-
-* Stripped out reentrancy-based thread model.
-	
-2005.06.12 -- Version 2.0.1_rc3MT
-
-* Merged with 2.0.1_rc3
-
-2005.05.18 -- Version 2.0.1_rc2.1MT
-
-* Merged with 2.0.1_rc2.1
-
-2005.05.18 -- Version 2.0-rc16MT
-
-* Merged with 2.0-rc16.
-
-2005.02.17 -- Version 2.0-rc14aMT
-
-* Merged with 2.0-rc14a.
-	
-2005.01.18 -- Version 2.0-rc8MT
-
-* Merged with 2.0-rc8.  Future merges should use
-  2.0-rc8a as the delta starting point.
-	
-2004.12.30 -- Version 2.0-rc6aMT
-
-* Merged with 2.0-rc6a.
-
 2005.07.04 -- Version 2.0.1-rc5
 
 * Windows version will log a for-further-info URL when
