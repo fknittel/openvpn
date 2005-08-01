@@ -3,6 +3,10 @@ Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
 
 $Id$
 
+2005.07.31 -- Version 2.1-alpha2
+
+* --fast-io efficiency improvements on UDP/Posix.
+
 2005.07.05 -- Version 2.1-alpha1
 
 * Added some preliminary infrastructure code to handle multithreading.

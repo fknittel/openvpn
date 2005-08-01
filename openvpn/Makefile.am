@@ -33,6 +33,7 @@ nodist_openvpn_SOURCES = config.h
 openvpn_SOURCES = \
         base64.c base64.h \
 	basic.h \
+	bitarray.h \
 	buffer.c buffer.h \
 	circ_list.h \
 	common.h \
@@ -40,10 +41,12 @@ openvpn_SOURCES = \
 	errlevel.h \
 	error.c error.h \
 	event.c event.h \
+	fastlook.c fastlook.h fastlook-inline.h \
 	fdmisc.c fdmisc.h \
         forward.c forward.h forward-inline.h \
 	fragment.c fragment.h \
 	gremlin.c gremlin.h \
+	group.c group.h \
 	helper.c helper.h \
 	init.c init.h \
 	integer.h \
@@ -83,7 +86,7 @@ openvpn_SOURCES = \
 	sig.c sig.h \
 	socket.c socket.h \
 	socks.c socks.h \
-	ssl.c ssl.h \
+	ssl.c ssl.h ssl-x509.h \
 	status.c status.h \
 	syshead.h \
 	thread.c thread.h \

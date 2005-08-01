@@ -25,7 +25,7 @@ dnl Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.50)
 
-AC_INIT([OpenVPN], [2.1_alpha1], [openvpn-users@lists.sourceforge.net], [openvpn])
+AC_INIT([OpenVPN], [2.1_alpha3], [openvpn-users@lists.sourceforge.net], [openvpn])
 AM_CONFIG_HEADER(config.h)
 AC_CONFIG_SRCDIR(syshead.h)
 
@@ -57,6 +57,12 @@ AC_ARG_ENABLE(server,
    [  --disable-server        Disable server support only (but retain client support)],
    [MULTI_SERVER="$enableval"],
    [MULTI_SERVER="yes"]
+)
+
+AC_ARG_ENABLE(groups,
+   [  --disable-groups        Disable groups support (--group-x)],
+   [DOGROUPS="$enableval"],
+   [DOGROUPS="yes"]
 )
 
 AC_ARG_ENABLE(plugins,
@@ -610,6 +616,11 @@ fi
 dnl enable client mode only, not server
 if test "$MULTI_SERVER" = "no"; then
    AC_DEFINE(ENABLE_CLIENT_ONLY, 1, [Enable client capability only])
+fi
+
+dnl enable groups
+if test "$DOGROUPS" = "yes"; then
+   AC_DEFINE(ENABLE_GROUPS, 1, [Enable groups capability])
 fi
 
 dnl enable management server capability

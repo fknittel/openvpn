@@ -53,6 +53,8 @@
 #include "status.h"
 #include "gremlin.h"
 #include "work.h"
+#include "ssl-x509.h"
+#include "group.h"
 
 #ifdef WIN32
 #include "cryptoapi.h"
@@ -334,7 +336,7 @@ tmp_rsa_cb (SSL * s, int is_export, int keylength)
  *
  * The common name is 'Test-CA'
  */
-static void
+void
 extract_x509_field (const char *x509, const char *field_name, char *out, int size)
 {
   char field_buf[256];
@@ -376,6 +378,25 @@ set_common_name (struct tls_session *session, const char *common_name)
   if (common_name)
     {
       session->common_name = string_alloc (common_name, NULL);
+    }
+}
+
+static bool
+set_x509_subject (struct tls_session *session, const char *subject)
+{
+  if (!subject || !strlen (subject))
+    return false;
+  if (session->x509_subject)
+    {
+      if (!strcmp (session->x509_subject, subject)) /* don't allow x509 subject string to change */
+	return true;
+      else
+	return false;
+    }
+  else
+    {
+      session->x509_subject = string_alloc (subject, NULL);
+      return true;
     }
 }
 
@@ -433,10 +454,6 @@ verify_callback (int preverify_ok, X509_STORE_CTX * ctx)
   /* enforce character class restrictions in X509 name */
   string_mod (subject, X509_NAME_CHAR_CLASS, 0, '_');
 
-  /* extract the common name */
-  extract_x509_field (subject, "CN", common_name, TLS_CN_LEN);
-  string_mod (common_name, COMMON_NAME_CHAR_CLASS, 0, '_');
-
 #if 0 /* print some debugging info */
   msg (D_LOW, "LOCAL OPT: %s", opt->local_options);
   msg (D_LOW, "X509: %s", subject);
@@ -455,9 +472,21 @@ verify_callback (int preverify_ok, X509_STORE_CTX * ctx)
   if (ctx->error_depth >= max_depth)
     msg (M_WARN, "TLS Warning: Convoluted certificate chain detected with depth [%d] greater than %d", ctx->error_depth, max_depth);
 
-  /* save common name in session object */
+  /* extract the common name */
+  extract_x509_field (subject, "CN", common_name, TLS_CN_LEN);
+  string_mod (common_name, COMMON_NAME_CHAR_CLASS, 0, '_');
+
+  /* save common name and x509 subject in session object */
   if (ctx->error_depth == 0)
-    set_common_name (session, common_name);
+    {
+      /* make sure that X509 subject string (at depth=0) doesn't change on a soft reset */
+      if (!set_x509_subject (session, subject))
+	{
+	  msg (D_HANDSHAKE, "VERIFY X509 subject inconsistency: %s", subject);
+	  goto err;		/* Reject connection */
+	}
+      set_common_name (session, common_name);
+    }
 
   /* export subject name string as environmental variable */
   session->verify_maxlevel = max_int (session->verify_maxlevel, ctx->error_depth);
@@ -657,6 +686,20 @@ tls_lock_common_name (struct tls_multi *multi)
   const char *cn = multi->session[TM_ACTIVE].common_name;
   if (cn && !multi->locked_cn)
     multi->locked_cn = string_alloc (cn, NULL);
+}
+
+const char *
+tls_x509_subject (struct tls_multi *multi, bool null)
+{
+  const char *ret = NULL;
+  if (multi)
+    ret = multi->session[TM_ACTIVE].x509_subject;
+  if (ret && strlen (ret))
+    return ret;
+  else if (null)
+    return NULL;
+  else
+    return "UNDEF";
 }
 
 /*
@@ -1526,6 +1569,9 @@ tls_session_free (struct tls_session *session, bool clear)
   if (session->common_name)
     free (session->common_name);
 
+  if (session->x509_subject)
+    free (session->x509_subject);
+
 #ifdef TLS_CHANNEL
   mbuf_free (session->channel_incoming);
   mbuf_free (session->channel_outgoing);
@@ -1752,7 +1798,12 @@ swap_hmac (struct buffer *buf, const struct crypto_options *co, bool incoming)
     const int hmac_size = HMAC_size (ctx->hmac) + packet_id_size (true);
 
     /* opcode + session_id */
-    const int osid_size = 1 + SID_SIZE;
+    const int osid_size =
+      SID_SIZE
+#if !ALIGN_OPTIMIZE
+      + 1
+#endif
+      ;
 
     int e1, e2;
     uint8_t *b = BPTR (buf);
@@ -1799,21 +1850,31 @@ write_control_auth (struct tls_session *session,
 		    int max_ack,
 		    bool prepend_ack)
 {
-  uint8_t *header;
   struct buffer null = clear_buf ();
 
   ASSERT (link_addr_defined (&ks->remote_addr));
-  ASSERT (reliable_ack_write
-	  (ks->rec_ack, buf, &ks->session_id_remote, max_ack, prepend_ack));
+
+  /* write acknowledgement of packet IDs received so far */
+  ASSERT (reliable_ack_write (ks->rec_ack, buf, &ks->session_id_remote, max_ack, prepend_ack));
+
+  /* write our own session ID */
   ASSERT (session_id_write_prepend (&session->session_id, buf));
-  ASSERT (header = buf_prepend (buf, 1));
-  *header = ks->key_id | (opcode << P_OPCODE_SHIFT);
+
+  /* write opcode */
+#if ALIGN_OPTIMIZE
+  ASSERT (buf_write_u8 (buf, ks->key_id | (opcode << P_OPCODE_SHIFT)));
+#else
+  ASSERT (buf_prepend_u8 (buf, ks->key_id | (opcode << P_OPCODE_SHIFT)));
+#endif
+    
+  /* if --tls-auth, write HMAC signature */
   if (session->tls_auth.key_ctx_bi->encrypt.hmac)
     {
       /* no encryption, only write hmac */
       openvpn_encrypt (buf, null, &session->tls_auth, NULL);
       ASSERT (swap_hmac (buf, &session->tls_auth, false));
     }
+
   *to_link_addr = &ks->remote_addr;
 }
 
@@ -1857,7 +1918,16 @@ read_control_auth (struct buffer *buf,
 
   /* advance buffer pointer past opcode & session_id since our caller
      already read it */
-  buf_advance (buf, SID_SIZE + 1);
+  buf_advance (buf, SID_SIZE
+#if !ALIGN_OPTIMIZE
+	       + 1
+#endif
+	       );
+
+#if ALIGN_OPTIMIZE
+  /* remove opcode at end of packet */
+  buf_inc_len (buf, -1);
+#endif
 
   gc_free (&gc);
   return true;
@@ -3371,7 +3441,14 @@ tls_pre_decrypt (struct tls_multi *multi,
 
       /* get opcode and key ID */
       {
-	uint8_t c = *BPTR (buf);
+	uint8_t c;
+
+#if ALIGN_OPTIMIZE
+	c = *BLAST (buf); /* get the opcode from the tail of the packet, rather than the head */
+#else
+	c = *BPTR (buf);
+#endif
+
 	op = c >> P_OPCODE_SHIFT;
 	key_id = c & P_KEY_ID_MASK;
       }
@@ -3406,7 +3483,11 @@ tls_pre_decrypt (struct tls_multi *multi,
 		  opt->pid_persist = NULL;
 		  opt->flags &= multi->opt.crypto_flags_and;
 		  opt->flags |= multi->opt.crypto_flags_or;
+#if ALIGN_OPTIMIZE
+		  ASSERT (buf_inc_len (buf, -1));
+#else
 		  ASSERT (buf_advance (buf, 1));
+#endif
 		  ++ks->n_packets;
 		  ks->n_bytes += buf->len;
 		  dmsg (D_TLS_DEBUG,
@@ -3474,7 +3555,9 @@ tls_pre_decrypt (struct tls_multi *multi,
 	  /* get remote session-id */
 	  {
 	    struct buffer tmp = *buf;
+#if !ALIGN_OPTIMIZE
 	    buf_advance (&tmp, 1);
+#endif
 	    if (!session_id_read (&sid, &tmp) || !session_id_defined (&sid))
 	      {
 		msg (D_TLS_ERRORS,
@@ -3796,7 +3879,7 @@ tls_pre_decrypt (struct tls_multi *multi,
  * determine whether we should generate a client instance
  * object, in which case true is returned.
  *
- * This function is essentially the first-line HMAC firewall
+ * This function is essentially the first-line HMAC packet filter
  * on the UDP port listener in --mode server mode.
  */
 bool
@@ -3814,7 +3897,14 @@ tls_pre_decrypt_lite (const struct tls_auth_standalone *tas,
 
       /* get opcode and key ID */
       {
-	uint8_t c = *BPTR (buf);
+	uint8_t c;
+
+#if ALIGN_OPTIMIZE
+	c = *BLAST (buf); /* get the opcode from the tail of the packet, rather than the head */
+#else
+	c = *BPTR (buf);
+#endif
+
 	op = c >> P_OPCODE_SHIFT;
 	key_id = c & P_KEY_ID_MASK;
       }
@@ -3940,15 +4030,19 @@ void
 tls_post_encrypt (struct tls_multi *multi, struct buffer *buf)
 {
   struct key_state *ks;
-  uint8_t *op;
 
   ks = multi->save_ks;
   multi->save_ks = NULL;
   if (buf->len > 0)
     {
       ASSERT (ks);
-      ASSERT (op = buf_prepend (buf, 1));
-      *op = (P_DATA_V1 << P_OPCODE_SHIFT) | ks->key_id;
+
+#if ALIGN_OPTIMIZE
+      ASSERT (buf_write_u8 (buf, (P_DATA_V1 << P_OPCODE_SHIFT) | ks->key_id));
+#else
+      ASSERT (buf_prepend_u8 (buf, (P_DATA_V1 << P_OPCODE_SHIFT) | ks->key_id));
+#endif
+
       ++ks->n_packets;
       ks->n_bytes += buf->len;
     }

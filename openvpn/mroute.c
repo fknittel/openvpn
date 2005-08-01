@@ -90,10 +90,12 @@ unsigned int
 mroute_extract_addr_from_packet (struct mroute_addr *src,
 				 struct mroute_addr *dest,
 				 struct buffer *buf,
-				 int tunnel_type)
+				 int tunnel_type,
+				 struct mroute_addr *esrc, // JYFIXME -- implement esrc/dest
+				 struct mroute_addr *edest)
 {
   unsigned int ret = 0;
-  verify_align_4 (buf);
+  verify_align (buf);
   if (tunnel_type == DEV_TYPE_TUN)
     {
       if (BLEN (buf) >= 1)

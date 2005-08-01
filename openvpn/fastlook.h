@@ -22,53 +22,48 @@
  *  59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#ifdef WIN32
-#include "config-win32.h"
-#else
-#include "config.h"
-#endif
+#ifndef FASTLOOK_H
+#define FASTLOOK_H
 
-#include "syshead.h"
+#include "common.h"
 
-#include "proto.h"
+#if P2MP_SERVER && defined(FAST_ADDR_LOOKUP)
 
-#include "memdbg.h"
+struct multi_instance;
 
 /*
- * If raw tunnel packet is IPv4, return true and increment
- * buffer offset to start of IP header.
+ * Extremely fast small-sized cache for IPv4 -> struct multi_instance lookup
  */
-bool
-is_ipv4 (int tunnel_type, struct buffer *buf)
+
+#if !(FAST_ADDR_LOOKUP == 4 || FAST_ADDR_LOOKUP == 8)
+#error FAST_ADDR_LOOKUP must be 4, 8, or undefined
+#endif
+
+struct fast_addr_4
 {
-  int offset;
-  const struct openvpn_iphdr *ih;
+  struct multi_instance *mi;
+  in_addr_t addr4;
+};
 
-  verify_align (buf);
-  if (tunnel_type == DEV_TYPE_TUN)
-    {
-      if (BLEN (buf) < (int) sizeof (struct openvpn_iphdr))
-	return false;
-      offset = 0;
-    }
-  else if (tunnel_type == DEV_TYPE_TAP)
-    {
-      const struct openvpn_ethhdr *eh;
-      if (BLEN (buf) < (int)(sizeof (struct openvpn_ethhdr)
-	  + sizeof (struct openvpn_iphdr)))
-	return false;
-      eh = (const struct openvpn_ethhdr *) BPTR (buf);
-      if (ntohs (eh->proto) != OPENVPN_ETH_P_IPV4)
-	return false;
-      offset = sizeof (struct openvpn_ethhdr);
-    }
-  else
-    return false;
+struct fast_addr_6 /* number of bytes in address, not IP version # */
+{
+  struct multi_instance *mi;
+  uint8_t addr6[6];
+  uint8_t dummy[6];
+};
 
-  ih = (const struct openvpn_iphdr *) (BPTR (buf) + offset);
+struct fast_addr
+{
+  int type;
+  unsigned int index;
+  union {
+    struct fast_addr_4 list4[FAST_ADDR_LOOKUP];
+    struct fast_addr_6 list6[FAST_ADDR_LOOKUP];
+  } u;
+};
 
-  if (OPENVPN_IPH_GET_VER (ih->version_len) == 4)
-    return buf_advance (buf, offset);
-  else
-    return false;
-}
+void multi_fast_addr_reset (struct fast_addr *fa);
+
+#endif
+
+#endif

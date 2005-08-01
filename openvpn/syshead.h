@@ -367,7 +367,7 @@ socket_defined (const socket_descriptor_t sd)
 }
 
 /*
- * Do we have point-to-multipoint capability?
+ * Do we have client/server capability?
  */
 
 #if defined(ENABLE_CLIENT_SERVER) && defined(USE_CRYPTO) && defined(USE_SSL) && defined(HAVE_GETTIMEOFDAY)
@@ -381,6 +381,19 @@ socket_defined (const socket_descriptor_t sd)
 #else
 #define P2MP_SERVER 0
 #endif
+
+/*
+ * Do we have groups capability (--group-x options)
+ */
+#if defined(ENABLE_GROUPS) && P2MP_SERVER
+#define GROUPS 1
+#else
+#define GROUPS 0
+#endif
+
+/* JYFIXME -- Disable groups feature for now */
+#undef GROUPS
+#define GROUPS 0
 
 /*
  * Do we have a plug-in capability?
@@ -439,6 +452,14 @@ socket_defined (const socket_descriptor_t sd)
 #if 0
 #undef EPOLL
 #define EPOLL 0
+#endif
+
+/*
+ * FAST_IO -- optimize for high data throughput (less efficient when handling lower bandwidth)
+ */
+#ifndef WIN32
+#define FAST_IO
+#define MPPD_DEBUG /* JYFIXME */
 #endif
 
 #endif

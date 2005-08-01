@@ -411,7 +411,7 @@ multi_tcp_dispatch (struct multi_context *m, struct multi_instance *mi, const in
       ASSERT (mi);
       ASSERT (mi->context.c2.link_socket);
       set_prefix (mi);
-      read_incoming_link (&mi->context);
+      read_incoming_link (&mi->context, &mi->context.c2.from_addr);
       clear_prefix ();
 
 #if 1
@@ -679,7 +679,7 @@ tunnel_server_tcp_event_loop (void *arg)
     {
       perf_push (PERF_EVENT_LOOP);
 
-#if 1 // JYFIXME -- pending handling at top of event loop
+#if 0 // JYFIXME -- pending handling at top of event loop
       if (m->pending)
 	{
 	  msg (M_INFO, "****** kill pending");

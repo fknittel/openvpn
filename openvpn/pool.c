@@ -56,14 +56,25 @@ ifconfig_pool_entry_free (struct ifconfig_pool_entry *ipe, bool hard)
 }
 
 static int
-ifconfig_pool_find (struct ifconfig_pool *pool, const char *common_name)
+ifconfig_pool_find (struct ifconfig_pool *pool,
+		    const struct ifconfig_pool_range *range,
+		    const char *common_name)
 {
   int i;
   time_t earliest_release = 0;
   int previous_usage = -1;
   int new_usage = -1;
+  struct ifconfig_pool_range r;
 
-  for (i = 0; i < pool->size; ++i)
+  if (range)
+    r = *range;
+  else
+    {
+      r.start = 0;
+      r.end = pool->size;
+    }
+
+  for (i = r.start; i < r.end; ++i)
     {
       struct ifconfig_pool_entry *ipe = &pool->list[i];
       if (!ipe->in_use)
@@ -160,11 +171,15 @@ ifconfig_pool_free (struct ifconfig_pool *pool)
 }
 
 ifconfig_pool_handle
-ifconfig_pool_acquire (struct ifconfig_pool *pool, in_addr_t *local, in_addr_t *remote, const char *common_name)
+ifconfig_pool_acquire (struct ifconfig_pool *pool,
+		       in_addr_t *local,
+		       in_addr_t *remote,
+		       const struct ifconfig_pool_range *range,
+		       const char *common_name)
 {
   int i;
 
-  i = ifconfig_pool_find (pool, common_name);
+  i = ifconfig_pool_find (pool, range, common_name);
   if (i >= 0)
     {
       struct ifconfig_pool_entry *ipe = &pool->list[i];
@@ -245,13 +260,13 @@ ifconfig_pool_handle_to_ip_base (const struct ifconfig_pool* pool, ifconfig_pool
 {
   in_addr_t ret = 0;
 
-  if (hand >= 0 && hand < pool->size)
+  if (hand >= 0 && hand <= pool->size)
     {
       switch (pool->type)
 	{
 	case IFCONFIG_POOL_30NET:
 	  {
-	    ret = pool->base + (hand << 2);;
+	    ret = pool->base + (hand << 2);
 	    break;
 	  }
 	case IFCONFIG_POOL_INDIV:
@@ -415,6 +430,41 @@ ifconfig_pool_write (struct ifconfig_pool_persist *persist, const struct ifconfi
       status_reset (persist->file);
       ifconfig_pool_list (pool, persist->file);
       status_flush (persist->file);
+    }
+}
+
+/*
+ * Construct an ifconfig_pool_range object
+ */
+bool
+ifconfig_pool_range_init (const struct ifconfig_pool *pool,
+			  struct ifconfig_pool_range *range,
+			  in_addr_t start,
+			  in_addr_t end,
+			  int msglevel)
+{
+  range->start = ifconfig_pool_ip_base_to_handle (pool, start);
+  range->end = ifconfig_pool_ip_base_to_handle (pool, end);
+  if (range->start == -1 || range->end == -1)
+    {
+      struct gc_arena gc = gc_new ();
+      if (msglevel >= 0)
+	{
+	  const in_addr_t pool_end = ifconfig_pool_handle_to_ip_base (pool, pool->size) - 1;
+	  msg (msglevel, "IP Pool Error: IP address subrange [%s -> %s] is not enclosed within major range [%s -> %s]",
+	       print_in_addr_t (start, 0, &gc),
+	       print_in_addr_t (end, 0, &gc),
+	       print_in_addr_t (pool->base, 0, &gc),
+	       print_in_addr_t (pool_end, 0, &gc));
+	}
+      range->start = range->end = -1;
+      gc_free (&gc);
+      return false;
+    }
+  else
+    {
+      ++range->end;
+      return true;
     }
 }
 

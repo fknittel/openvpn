@@ -30,45 +30,37 @@
 
 #include "syshead.h"
 
-#include "proto.h"
+#if P2MP_SERVER
+
+#include "multi.h"
 
 #include "memdbg.h"
 
-/*
- * If raw tunnel packet is IPv4, return true and increment
- * buffer offset to start of IP header.
- */
-bool
-is_ipv4 (int tunnel_type, struct buffer *buf)
+#include "fastlook-inline.h"
+
+struct multi_instance *
+multi_fast_addr_lookup_foo (struct fast_addr *fa, const struct mroute_addr *addr)
 {
-  int offset;
-  const struct openvpn_iphdr *ih;
-
-  verify_align (buf);
-  if (tunnel_type == DEV_TYPE_TUN)
-    {
-      if (BLEN (buf) < (int) sizeof (struct openvpn_iphdr))
-	return false;
-      offset = 0;
-    }
-  else if (tunnel_type == DEV_TYPE_TAP)
-    {
-      const struct openvpn_ethhdr *eh;
-      if (BLEN (buf) < (int)(sizeof (struct openvpn_ethhdr)
-	  + sizeof (struct openvpn_iphdr)))
-	return false;
-      eh = (const struct openvpn_ethhdr *) BPTR (buf);
-      if (ntohs (eh->proto) != OPENVPN_ETH_P_IPV4)
-	return false;
-      offset = sizeof (struct openvpn_ethhdr);
-    }
-  else
-    return false;
-
-  ih = (const struct openvpn_iphdr *) (BPTR (buf) + offset);
-
-  if (OPENVPN_IPH_GET_VER (ih->version_len) == 4)
-    return buf_advance (buf, offset);
-  else
-    return false;
+  return multi_fast_addr_lookup (fa, addr);
 }
+
+void
+multi_fast_addr_save_foo (struct fast_addr *fa, const struct mroute_addr *addr, struct multi_instance *mi)
+{
+  multi_fast_addr_save (fa, addr, mi);
+}
+
+bool
+memeq6_foo (const void *m1, const void *m2)
+{
+  return memeq6 (m1, m2);
+
+}
+
+void
+multi_fast_addr_reset (struct fast_addr *fa)
+{
+  CLEAR (*fa);
+}
+
+#endif

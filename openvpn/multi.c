@@ -41,6 +41,7 @@
 #include "memdbg.h"
 
 #include "forward-inline.h"
+#include "fastlook-inline.h"
 
 //#define MULTI_DEBUG_EVENT_LOOP
 
@@ -401,7 +402,7 @@ multi_init (struct multi_context *m, struct context *t, bool tcp_mode)
 }
 
 const char *
-multi_instance_string (struct multi_instance *mi, bool null, struct gc_arena *gc)
+multi_instance_string (const struct multi_instance *mi, bool null, struct gc_arena *gc)
 {
   if (mi)
     {
@@ -529,6 +530,10 @@ multi_close_instance (struct multi_context *m,
   if (m->earliest_wakeup == mi)
     m->earliest_wakeup = NULL;
 
+#ifdef FAST_IO
+  multi_postprocess_defer_reset (m);
+#endif
+
   if (!shutdown)
     {
       if (mi->did_real_hash)
@@ -560,6 +565,11 @@ multi_close_instance (struct multi_context *m,
 	  if (m->mtcp)
 	    multi_tcp_dereference_instance (m->mtcp, mi);
 	}
+
+#ifdef FAST_ADDR_LOOKUP
+      multi_fast_addr_reset (&m->fast_addr);
+      multi_fast_addr_reset (&m->fast_vaddr);
+#endif
 
     }
 
@@ -634,6 +644,10 @@ multi_create_instance (struct multi_context *m, const struct mroute_addr *real)
   perf_push (PERF_MULTI_CREATE_INSTANCE);
 
   msg (D_MULTI_LOW, "MULTI: multi_create_instance called");
+
+#ifdef FAST_ADDR_LOOKUP
+  multi_fast_addr_reset (&m->fast_addr);
+#endif
 
   ALLOC_OBJ_CLEAR (mi, struct multi_instance);
 
@@ -882,67 +896,79 @@ multi_learn_addr (struct multi_context *m,
 		  const struct mroute_addr *addr,
 		  const unsigned int flags)
 {
-  const uint32_t hv = hash_value (m->vhash, addr);
-  struct hash_bucket *bucket = hash_bucket (m->vhash, hv);
-  struct multi_instance *owner;
-  struct multi_route *oldroute;
-  struct hash_element *he;
-
-  he = multi_addr_lookup (m, addr, bucket, hv, &oldroute, &owner);
-
-  /* do we need to add address to hash table? */
-  if ((!owner || owner != mi)
-      && mroute_learnable_address (addr)
-      && !mroute_addr_equal (addr, &m->local)
-      && learn_address_script (m, mi, oldroute ? "update" : "add", addr, flags))
+#ifdef FAST_ADDR_LOOKUP
+  if (flags & MULTI_LOOKUP_CACHE)
     {
-      struct gc_arena gc = gc_new ();
-      struct multi_route *newroute;
+      struct multi_instance *ret;
+      if ((ret = multi_fast_addr_lookup (&m->fast_vaddr, addr)) != NULL)
+	return ret;
+    }
+#endif
 
-      /* lookup again in case vhash was modified during learn_address call */
+    {
+      const uint32_t hv = hash_value (m->vhash, addr);
+      struct hash_bucket *bucket = hash_bucket (m->vhash, hv);
+      struct multi_instance *owner;
+      struct multi_route *oldroute;
+      struct hash_element *he;
+
       he = multi_addr_lookup (m, addr, bucket, hv, &oldroute, &owner);
 
-      /* allocate new route object */
-      ALLOC_OBJ (newroute, struct multi_route);
-      newroute->addr = *addr;
-      newroute->instance = mi;
-      newroute->flags = (flags & MULTI_ROUTE_MASK);
-      newroute->last_reference = now;
-      newroute->cache_generation = 0;
-
-      /* The cache is invalidated when cache_generation is incremented */
-      if (flags & MULTI_ROUTE_CACHE)
-	newroute->cache_generation = m->route_helper->cache_generation;
-
-      /* set route owner to current instance */
-      owner = mi;
-
-      /* each route that points to a client instance increments the instance reference count */
-      multi_instance_inc_refcount (mi);
-
-      if (oldroute) /* route already exists? */
+      /* do we need to add address to hash table? */
+      if ((!owner || owner != mi)
+	  && mroute_learnable_address (addr)
+	  && !mroute_addr_equal (addr, &m->local)
+	  && learn_address_script (m, mi, oldroute ? "update" : "add", addr, flags))
 	{
-	  /* delete old route */
-	  multi_route_del (oldroute);
+	  struct gc_arena gc = gc_new ();
+	  struct multi_route *newroute;
 
-	  /* modify hash table entry, replacing old route */
-	  he->key = &newroute->addr;
-	  he->value = newroute;
+	  /* lookup again in case vhash was modified during learn_address call */
+	  he = multi_addr_lookup (m, addr, bucket, hv, &oldroute, &owner);
+
+	  /* allocate new route object */
+	  ALLOC_OBJ (newroute, struct multi_route);
+	  newroute->addr = *addr;
+	  newroute->instance = mi;
+	  newroute->flags = (flags & MULTI_ROUTE_MASK);
+	  newroute->last_reference = now;
+	  newroute->cache_generation = 0;
+
+	  /* The cache is invalidated when cache_generation is incremented */
+	  if (flags & MULTI_ROUTE_CACHE) 
+	    newroute->cache_generation = m->route_helper->cache_generation;
+
+	  /* set route owner to current instance */
+	  owner = mi;
+
+	  /* each route that points to a client instance increments the instance reference count */
+	  multi_instance_inc_refcount (mi);
+
+	  if (oldroute) /* route already exists? */
+	    {
+	      /* delete old route */
+	      multi_route_del (oldroute);
+
+	      /* modify hash table entry, replacing old route */
+	      he->key = &newroute->addr;
+	      he->value = newroute;
+	    }
+	  else
+	    {
+	      /* add new route */
+	      hash_add_fast (m->vhash, bucket, &newroute->addr, hv, newroute);
+	    }
+
+	  if (!(flags & MULTI_ROUTE_CACHE))
+	    msg (D_MULTI_LOW, "MULTI: Learn: %s -> %s",
+		 mroute_addr_print (&newroute->addr, &gc),
+		 multi_instance_string (mi, false, &gc));
+
+	  gc_free (&gc);
 	}
-      else
-	{
-	  /* add new route */
-	  hash_add_fast (m->vhash, bucket, &newroute->addr, hv, newroute);
-	}
 
-      msg (D_MULTI_LOW, "MULTI: Learn: %s -> %s",
-	   mroute_addr_print (&newroute->addr, &gc),
-	   multi_instance_string (mi, false, &gc));
-
-      gc_free (&gc);
+      return owner;
     }
-
-  return owner;
 }
 
 /*
@@ -954,7 +980,14 @@ multi_get_instance_by_virtual_addr (struct multi_context *m,
 				    const unsigned int flags)
 {
   struct multi_route *route;
-  struct multi_instance *ret = NULL;
+  struct multi_instance *ret;
+
+#ifdef FAST_ADDR_LOOKUP
+  if ((ret = multi_fast_addr_lookup (&m->fast_vaddr, addr)) != NULL)
+    return ret;
+#else
+  ret = NULL;
+#endif
 
   /* check for local address */
   if (mroute_addr_equal (addr, &m->local))
@@ -1016,7 +1049,12 @@ multi_get_instance_by_virtual_addr (struct multi_context *m,
     }
 #endif
 
+#ifdef FAST_ADDR_LOOKUP
+  multi_fast_addr_save (&m->fast_vaddr, addr, ret);
+#endif
+
   ASSERT (!(ret && ret->halt));
+
   return ret;
 }
 
@@ -1047,6 +1085,26 @@ multi_learn_in_addr_t (struct multi_context *m,
 }
 
 /*
+ * Display a message about the addition of an iroute
+ */
+static void
+multi_iroute_msg (const struct iroute *ir, const int msglevel, const char *description)
+{
+  struct gc_arena gc = gc_new ();
+  if (ir->netbits >= 0)
+    msg (msglevel, "MULTI: %s %s/%d",
+	 description,
+	 print_in_addr_t (ir->network, 0, &gc),
+	 ir->netbits);
+  else
+    msg (msglevel, "MULTI: %s %s",
+	 description,
+	 print_in_addr_t (ir->network, 0, &gc));
+
+  gc_free (&gc);
+}
+
+/*
  * A new client has connected, add routes (server -> client)
  * to internal routing table.
  */
@@ -1055,28 +1113,31 @@ multi_add_iroutes (struct multi_context *m,
 		   struct multi_instance *mi,
 		   const unsigned int flags)
 {
-  struct gc_arena gc = gc_new ();
   const struct iroute *ir;
-  if (TUNNEL_TYPE (mi->context.c1.tuntap) == DEV_TYPE_TUN)
-    {
-      for (ir = mi->context.options.iroutes; ir != NULL; ir = ir->next)
-	{
-	  if (ir->netbits >= 0)
-	    msg (D_MULTI_LOW, "MULTI: internal route %s/%d -> %s",
-		 print_in_addr_t (ir->network, 0, &gc),
-		 ir->netbits,
-		 multi_instance_string (mi, false, &gc));
-	  else
-	    msg (D_MULTI_LOW, "MULTI: internal route %s -> %s",
-		 print_in_addr_t (ir->network, 0, &gc),
-		 multi_instance_string (mi, false, &gc));
+  
+#ifdef FAST_ADDR_LOOKUP
+  multi_fast_addr_reset (&m->fast_vaddr);
+#endif
 
-	  mroute_helper_add_iroute (m->route_helper, ir);
-      
+  mi->did_iroutes = true;
+  for (ir = mi->context.options.iroutes; ir != NULL; ir = ir->next)
+    {
+      if (TUNNEL_TYPE (mi->context.c1.tuntap) == DEV_TYPE_TUN)
+	{
+	  multi_iroute_msg (ir, D_MULTI_LOW, "internal route");
+	  mroute_helper_add_iroute (m->route_helper, ir);      
 	  multi_learn_in_addr_t (m, mi, ir->network, ir->netbits, flags);
 	}
+      else if (TUNNEL_TYPE (mi->context.c1.tuntap) == DEV_TYPE_TAP)
+	{
+#if GROUPS
+	  multi_iroute_msg (ir, D_MULTI_LOW, "Client ACL");
+	  client_src_subnet_add (&mi->context.c2.group_context, ir->network, ir->netbits);
+#else
+	  msg (D_MULTI_ERRORS, "MULTI: --iroute options rejected -- iroute on TAP-style tunnels requires --enable-groups support");
+#endif
+	}
     }
-  gc_free (&gc);
 }
 
 /*
@@ -1150,7 +1211,33 @@ multi_select_virtual_addr (struct multi_context *m, struct multi_instance *mi)
       if (!mi->context.options.duplicate_cn)
 	cn = tls_common_name (mi->context.c2.tls_multi, true);
 
-      mi->vaddr_handle = ifconfig_pool_acquire (m->ifconfig_pool, &local, &remote, cn);
+#if GROUPS
+      /*
+       * If --group-ip-range was defined, obtain IP allocation from range.
+       */
+      if (group_context_defined (&mi->context.c2.group_context))
+	{
+	  struct group_ip_range gr;
+
+	  if (group_context_get_ip_range (&mi->context.c2.group_context, &gr))
+	    {
+	      struct ifconfig_pool_range ipr;
+	      if (ifconfig_pool_range_init (m->ifconfig_pool, &ipr, gr.start, gr.end, D_MULTI_ERRORS))
+		mi->vaddr_handle = ifconfig_pool_acquire (m->ifconfig_pool, &local, &remote, &ipr, cn);
+	      else
+		mi->vaddr_handle = -1;
+	    }
+	  else
+	    {
+	      msg (D_MULTI_ERRORS, "MULTI: No valid --group-ip-range for %s",
+		   multi_instance_string (mi, false, &gc));
+	      mi->vaddr_handle = -1;
+	    }
+	}
+      else
+#endif
+	mi->vaddr_handle = ifconfig_pool_acquire (m->ifconfig_pool, &local, &remote, NULL, cn);
+
       if (mi->vaddr_handle >= 0)
 	{
 	  /* use pool ifconfig address(es) */
@@ -1177,7 +1264,7 @@ multi_select_virtual_addr (struct multi_context *m, struct multi_instance *mi)
 	}
       else
 	{
-	  msg (D_MULTI_ERRORS, "MULTI: no free --ifconfig-pool addresses are available");
+	  msg (D_MULTI_ERRORS, "MULTI: no free --ifconfig-pool addresses are available for this client");
 	}
     }
   gc_free (&gc);
@@ -1270,7 +1357,7 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
     {
       struct gc_arena gc = gc_new ();
       unsigned int option_types_found = 0;
-      const unsigned int option_permissions_mask = OPT_P_PUSH|OPT_P_INSTANCE|OPT_P_TIMER|OPT_P_CONFIG|OPT_P_ECHO;
+      const unsigned int option_permissions_mask = OPT_P_PUSH|OPT_P_INSTANCE|OPT_P_TIMER|OPT_P_CONFIG|OPT_P_ECHO|OPT_P_GROUP;
       int cc_succeeded = true; /* client connect script status */
       int cc_succeeded_count = 0;
 
@@ -1278,6 +1365,15 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 
       /* lock down the common name so it can't change during future TLS renegotiations */
       tls_lock_common_name (mi->context.c2.tls_multi);
+
+#if GROUPS
+      /* transfer knowledge of x509 subject string from TLS object to group object */
+      if (group_context_defined (&mi->context.c2.group_context))
+	{
+	  const char *x509_subject = tls_x509_subject (mi->context.c2.tls_multi, true);
+	  group_context_set_x509_subject (&mi->context.c2.group_context, x509_subject);
+	}
+#endif
 
       /* generate a msg() prefix for this client instance */
       generate_prefix (mi);
@@ -1398,7 +1494,7 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 				  "client-connect",
 				  BSTR (&cmd),
 				  mi->context.c2.es,
-				  0)
+				  S_SCRIPT)
 	      && !IS_SIG (&mi->context))
 	    {
 	      multi_client_connect_post (m, mi, dc_file, option_permissions_mask, &option_types_found);
@@ -1407,6 +1503,18 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 	  else
 	    cc_succeeded = false;
 	}
+
+#if GROUPS
+      /*
+       * If groups are enabled, it's a fatal error for the current context group
+       * ID to be undefined at this point.
+       */
+      if (!group_context_id_defined (&mi->context.c2.group_context))
+	{
+	  msg (D_MULTI_ERRORS, "MULTI: client has been rejected due to lack of a group association");
+	  cc_succeeded = false;
+	}
+#endif
 
       /*
        * Check for "disable" directive in client-config-dir file
@@ -1432,27 +1540,38 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 	    {
 	      msg (D_MULTI_ERRORS, "MULTI: no dynamic or static remote --ifconfig address is available for %s",
 		   multi_instance_string (mi, false, &gc));
+#if GROUPS
+	      /*
+	       * If groups are defined and --ifconfig-pool is being used, it's a fatal error
+	       * for the client instance not to have valid ifconfig settings at this point.
+	       */
+	      if (group_context_defined (&mi->context.c2.group_context) && m->ifconfig_pool)
+		cc_succeeded = false;
+#endif
 	    }
 
-	  /*
-	   * For routed tunnels, set up internal route to endpoint
-	   * plus add all iroute routes.
-	   */
-	  if (TUNNEL_TYPE (mi->context.c1.tuntap) == DEV_TYPE_TUN)
+	  if (cc_succeeded)
 	    {
 	      if (mi->context.c2.push_ifconfig_defined)
 		{
-		  multi_learn_in_addr_t (m, mi, mi->context.c2.push_ifconfig_local, -1, 0);
-		  if (IS_SIG (&mi->context))
+		  /*
+		   * For routed tunnels, set up internal route to endpoint
+		   * plus add all iroute routes.
+		   */
+		  if (TUNNEL_TYPE (mi->context.c1.tuntap) == DEV_TYPE_TUN)
 		    {
-		      cc_succeeded = false;
+		      multi_learn_in_addr_t (m, mi, mi->context.c2.push_ifconfig_local, -1, 0);
+		      if (IS_SIG (&mi->context))
+			cc_succeeded = false;
 		    }
-		  else
-		    {
-		      msg (D_MULTI_LOW, "MULTI: primary virtual IP for %s: %s",
-			   multi_instance_string (mi, false, &gc),
-			   print_in_addr_t (mi->context.c2.push_ifconfig_local, 0, &gc));
-		    }
+#if GROUPS
+		  else if (TUNNEL_TYPE (mi->context.c1.tuntap) == DEV_TYPE_TAP)
+		    client_src_subnet_add (&mi->context.c2.group_context, mi->context.c2.push_ifconfig_local, 32);
+#endif
+		  if (cc_succeeded)
+		    msg (D_MULTI_LOW, "MULTI: primary virtual IP for %s: %s",
+			 multi_instance_string (mi, false, &gc),
+			 print_in_addr_t (mi->context.c2.push_ifconfig_local, 0, &gc));
 		}
 
 	      /* add routes locally, pointing to new client, if
@@ -1469,11 +1588,6 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 	       */
 	      if (cc_succeeded)
 		remove_iroutes_from_push_route_list (&mi->context.options);
-	    }
-	  else if (mi->context.options.iroutes)
-	    {
-	      msg (D_MULTI_ERRORS, "MULTI: --iroute options rejected for %s -- iroute only works with tun-style tunnels",
-		   multi_instance_string (mi, false, &gc));
 	    }
 
 	  /* set our client's VPN endpoint for status reporting purposes */
@@ -1529,33 +1643,45 @@ multi_add_mbuf (struct multi_context *m,
 
 #define MF_UNICAST (1<<0) /* used in struct mbuf_buffer.flags */
 
-static inline void
+static inline bool
 multi_unicast (struct multi_context *m,
 	       const struct buffer *buf,
-	       struct multi_instance *mi)
+	       struct multi_instance *src,
+	       struct multi_instance *dest,
+	       const struct mroute_addr *srcaddr,
+	       const struct mroute_addr *destaddr)
 {
   struct mbuf_buffer *mb;
 
-  if (BLEN (buf) > 0)
+  if (
+#if GROUPS
+      group_context_allow_acl (&src->context.c2.group_context, srcaddr, &dest->context.c2.group_context, destaddr) &&
+#endif
+      BLEN (buf) > 0)
     {
       mb = mbuf_alloc_buf (buf);
       mb->flags = MF_UNICAST;
-      multi_add_mbuf (m, mi, mb);
+      multi_add_mbuf (m, dest, mb);
       mbuf_free_buf (mb);
+      return true;
     }
+
+  return false;
 }
 
 /*
- * Broadcast a packet to all clients.
+ * Broadcast a packet to all clients, possibly constrained by group
+ * ACL if defined.
  */
 void
 multi_bcast (struct multi_context *m,
 	     const struct buffer *buf,
-	     struct multi_instance *omit)
+	     struct multi_instance *src,
+	     const struct mroute_addr *srcaddr)
 {
   struct hash_iterator hi;
   struct hash_element *he;
-  struct multi_instance *mi;
+  struct multi_instance *dest;
   struct mbuf_buffer *mb;
 
   if (BLEN (buf) > 0)
@@ -1569,9 +1695,13 @@ multi_bcast (struct multi_context *m,
 
       while ((he = hash_iterator_next (&hi)))
 	{
-	  mi = (struct multi_instance *) he->value;
-	  if (mi != omit && !mi->halt)
-	    multi_add_mbuf (m, mi, mb);
+	  dest = (struct multi_instance *) he->value;
+	  if (dest != src && !dest->halt
+#if GROUPS
+	      && group_context_allow_acl (&src->context.c2.group_context, srcaddr, &dest->context.c2.group_context, NULL)
+#endif
+	      )
+	    multi_add_mbuf (m, dest, mb);
 	}
 
       hash_iterator_free (&hi);
@@ -1609,6 +1739,32 @@ compute_wakeup_sigma (const struct timeval *delta)
     }
 }
 
+void
+multi_instance_housekeeping (struct multi_context *m, struct multi_instance *mi)
+{
+  /* figure timeouts and fetch possible outgoing
+     to_link packets (such as ping or TLS control) */
+  pre_select (&mi->context);
+
+  if (!IS_SIG (&mi->context))
+    {
+      /* calculate an absolute wakeup time */
+      ASSERT (!gettimeofday (&mi->wakeup, NULL));
+      tv_add (&mi->wakeup, &mi->context.c2.timeval);
+
+      /* tell scheduler to wake us up at some point in the future */
+      schedule_add_entry (m->schedule,
+			  (struct schedule_entry *) mi,
+			  &mi->wakeup,
+			  compute_wakeup_sigma (&mi->context.c2.timeval));
+      
+      /* connection is "established" when SSL/TLS key negotiation succeeds
+	 and (if specified) auth user/pass succeeds */
+      if (!mi->connection_established_flag && CONNECTION_ESTABLISHED (&mi->context))
+	multi_connection_established (m, mi);
+    }
+}
+
 /*
  * Figure instance-specific timers, convert
  * earliest to absolute time in mi->wakeup,
@@ -1621,30 +1777,8 @@ multi_process_post (struct multi_context *m, struct multi_instance *mi, const un
 {
   bool ret = true;
 
-  if (!IS_SIG (&mi->context) && ((flags & MPP_PRE_SELECT) || ((flags & MPP_CONDITIONAL_PRE_SELECT) && !ANY_OUT (&mi->context))))
-    {
-      /* figure timeouts and fetch possible outgoing
-	 to_link packets (such as ping or TLS control) */
-      pre_select (&mi->context);
-
-      if (!IS_SIG (&mi->context))
-	{
-	  /* calculate an absolute wakeup time */
-	  ASSERT (!gettimeofday (&mi->wakeup, NULL));
-	  tv_add (&mi->wakeup, &mi->context.c2.timeval);
-
-	  /* tell scheduler to wake us up at some point in the future */
-	  schedule_add_entry (m->schedule,
-			      (struct schedule_entry *) mi,
-			      &mi->wakeup,
-			      compute_wakeup_sigma (&mi->context.c2.timeval));
-
-	  /* connection is "established" when SSL/TLS key negotiation succeeds
-	     and (if specified) auth user/pass succeeds */
-	  if (!mi->connection_established_flag && CONNECTION_ESTABLISHED (&mi->context))
-	    multi_connection_established (m, mi);
-	}
-    }
+  if (!IS_SIG (&mi->context) && ((flags & MPP_PRE_SELECT)))
+    multi_instance_housekeeping (m, mi);
 
   if (IS_SIG (&mi->context))
     {
@@ -1658,21 +1792,15 @@ multi_process_post (struct multi_context *m, struct multi_instance *mi, const un
     {
       /* continue to pend on output? */
       multi_set_pending (m, ANY_OUT (&mi->context) ? mi : NULL);
-
-#ifdef MULTI_DEBUG_EVENT_LOOP
-      printf ("POST %s[%d] to=%d lo=%d/%d w=%d/%d\n",
-	      id(mi),
-	      (int) (mi == m->pending),
-	      mi ? mi->context.c2.to_tun.len : -1,
-	      mi ? mi->context.c2.to_link.len : -1,
-	      (mi && mi->context.c2.fragment) ? mi->context.c2.fragment->outgoing.len : -1,
-	      (int)mi->context.c2.timeval.tv_sec,
-	      (int)mi->context.c2.timeval.tv_usec);
-#endif
     }
 
-  if ((flags & MPP_RECORD_TOUCH) && m->mpp_touched)
-    *m->mpp_touched = mi;
+#ifdef FAST_IO
+  if (flags & MPP_POSTPROCESS_DEFER)
+    multi_postprocess_defer_add (m, mi);
+  else
+#endif
+    if ((flags & MPP_RECORD_TOUCH) && m->mpp_touched)
+      *m->mpp_touched = mi;
 
   return ret;
 }
@@ -1691,6 +1819,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
   unsigned int mroute_flags;
   struct multi_instance *mi;
   bool ret = true;
+  struct openvpn_sockaddr *from;
 
   ASSERT (!m->pending);
 
@@ -1717,13 +1846,15 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 	  c->c2.buf = m->top.c2.buf;
 
 	  /* transfer from-addr from top-level context buffer to instance */
-	  c->c2.from = m->top.c2.from;
+	  from = &m->top.c2.from_addr;
 	}
+      else
+	from = &c->c2.from_addr;
 
       if (BLEN (&c->c2.buf) > 0)
 	{
 	  /* decrypt in instance context */
-	  process_incoming_link (c);
+	  process_incoming_link (c, from);
 
 	  if (TUNNEL_TYPE (m->top.c1.tuntap) == DEV_TYPE_TUN)
 	    {
@@ -1731,7 +1862,9 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 	      mroute_flags = mroute_extract_addr_from_packet (&src,
 							      &dest,
 							      &c->c2.to_tun,
-							      DEV_TYPE_TUN);
+							      DEV_TYPE_TUN,
+							      NULL,
+							      NULL);
 
 	      /* drop packet if extract failed */
 	      if (!(mroute_flags & MROUTE_EXTRACT_SUCCEEDED))
@@ -1748,11 +1881,13 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 		       mroute_addr_print (&src, &gc));
 		  goto drop;
 		}
+#if 0
 	      /* learn address script might generate a signal */
 	      else if (IS_SIG (c))
 		{
 		  goto drop;
 		}
+#endif
 	      /* client-to-client communication enabled? */
 	      else if (m->enable_c2c)
 		{
@@ -1760,7 +1895,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 		  if (mroute_flags & MROUTE_EXTRACT_MCAST)
 		    {
 		      /* for now, treat multicast as broadcast */
-		      multi_bcast (m, &c->c2.to_tun, m->pending);
+		      multi_bcast (m, &c->c2.to_tun, m->pending, NULL);
 		    }
 		  else /* possible client-to-client routing */
 		    {
@@ -1768,58 +1903,80 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 		      mi = multi_get_instance_by_virtual_addr (m,
 							       &dest,
 							       MGI_CIDR_ROUTING);
+#if 0
 		      if (IS_SIG (c)) /* learn address script might generate a signal */
 			goto drop;
+#endif
 
 		      /* if dest addr is a known client, route to it */
 		      if (mi)
 			{
-			  multi_unicast (m, &c->c2.to_tun, mi);
-			  register_activity (c);
+			  if (multi_unicast (m, &c->c2.to_tun, m->pending, mi, &src, &dest))
+			    register_activity (c);
 			  goto drop;
 			}
 		    }
 		}
+#if GROUPS
+	      /* make sure that dest address is allowed by group ACL */
+	      if (!group_context_allow_acl_by_addr (&c->c2.group_context, &dest))
+		{
+		  msg (D_MULTI_DROPPED, "MULTI: client -> [%s] does not conform to group ACL, packet dropped",
+		       mroute_addr_print (&dest, &gc));
+		  goto drop;
+		}
+#endif
 	    }
 	  else if (TUNNEL_TYPE (m->top.c1.tuntap) == DEV_TYPE_TAP)
 	    {
+	      struct mroute_addr esrc, edest; /* encapsulated source/dest address */
+
 	      /* extract packet source and dest addresses */
 	      mroute_flags = mroute_extract_addr_from_packet (&src,
 							      &dest,
 							      &c->c2.to_tun,
-							      DEV_TYPE_TAP);
+							      DEV_TYPE_TAP,
+							      &esrc,
+							      &edest);
 
 	      if (mroute_flags & MROUTE_EXTRACT_SUCCEEDED)
 		{
-		  if (multi_learn_addr (m,
+		  if (
+#if GROUPS
+		      (client_src_addr_validate (&c->c2.group_context, &esrc)) &&
+#endif
+		      multi_learn_addr (m,
 					m->pending,
 					&src,
-					0) == m->pending)
+					MULTI_LOOKUP_CACHE) == m->pending)
 		    {
+#if 0
 		      /* learn address script might generate a signal */
 		      if (IS_SIG (c))
 			goto drop;
-
+#endif
 		      /* check for broadcast */
 		      if (m->enable_c2c)
 			{
 			  if (mroute_flags & (MROUTE_EXTRACT_BCAST|MROUTE_EXTRACT_MCAST))
 			    {
-			      multi_bcast (m, &c->c2.to_tun, m->pending);
+			      multi_bcast (m, &c->c2.to_tun, m->pending, NULL);
 			    }
 			  else /* try client-to-client routing */
 			    {
 			      mi = multi_get_instance_by_virtual_addr (m,
 								       &dest,
 								       0);
+#if 0
 			      if (IS_SIG (c)) /* learn address script might generate a signal */
 				goto drop;
+#endif
 
 			      /* if dest addr is a known client, route to it */
 			      if (mi)
 				{
-				  multi_unicast (m, &c->c2.to_tun, mi);
-				  register_activity (c);
+				  if (multi_unicast (m, &c->c2.to_tun, m->pending, mi, &esrc, &edest))
+				    register_activity (c);
 				  goto drop;
 				}
 			    }
@@ -1827,7 +1984,8 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 		    }
 		  else
 		    {
-		      msg (D_MULTI_DROPPED, "MULTI: bad source address from client [%s], packet dropped",
+		      msg (D_MULTI_DROPPED, "MULTI: bad source address from client [%s/%s], packet dropped",
+			   mroute_addr_print (&esrc, &gc),
 			   mroute_addr_print (&src, &gc));
 		      goto drop;
 		    }
@@ -1869,11 +2027,11 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
   if (BLEN (&m->top.c2.buf) > 0)
     {
       unsigned int mroute_flags;
-      struct mroute_addr src, dest;
+      struct mroute_addr src, esrc, dest;
       const int dev_type = TUNNEL_TYPE (m->top.c1.tuntap);
 
 #ifdef MULTI_DEBUG_EVENT_LOOP
-      printf ("TUN -> TCP/UDP [%d]\n", BLEN (&m->top.c2.buf));
+      printf ("TUN/TAP -> TCP/UDP [%d]\n", BLEN (&m->top.c2.buf));
 #endif
 
       ASSERT (!m->pending);
@@ -1886,7 +2044,9 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
       mroute_flags = mroute_extract_addr_from_packet (&src,
 						      &dest,
 						      &m->top.c2.buf,
-						      dev_type);
+						      dev_type,
+						      &esrc,
+						      NULL);
 
       if (mroute_flags & MROUTE_EXTRACT_SUCCEEDED)
 	{
@@ -1896,7 +2056,7 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
 	  if (mroute_flags & (MROUTE_EXTRACT_BCAST|MROUTE_EXTRACT_MCAST))
 	    {
 	      /* for now, treat multicast as broadcast */
-	      multi_bcast (m, &m->top.c2.buf, NULL);
+	      multi_bcast (m, &m->top.c2.buf, NULL, &esrc);
 	    }
 	  else
 	    {
@@ -1913,6 +2073,16 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
 		  
 		  set_prefix (m->pending);
 
+#if GROUPS
+		  /* make sure that src address is allowed by group ACL */
+		  if (!group_context_allow_acl_by_addr (&c->c2.group_context, &esrc))
+		    {
+		      msg (D_MULTI_DROPPED, "MULTI: [%s] -> client does not conform to group ACL, packet dropped",
+			   mroute_addr_print (&src, &gc));
+		      buf_clear (&c->c2.buf);
+		    }
+		  else
+#endif
 		  if (multi_output_queue_ready (m, m->pending) && !IS_SIG (&m->pending->context))
 		    {
 		      /* transfer packet pointer from top-level context buffer to instance */
@@ -2047,7 +2217,7 @@ gremlin_flood_clients (struct multi_context *m)
 	ASSERT (buf_write_u8 (&buf, get_random () & 0xFF));
 
       for (i = 0; i < parm.n_packets; ++i)
-	multi_bcast (m, &buf, NULL);
+	multi_bcast (m, &buf, NULL, NULL);
 
       gc_free (&gc);
     }
@@ -2241,6 +2411,30 @@ uninit_management_callback_multi (struct multi_context *m)
 {
   uninit_management_callback ();
 }
+
+#ifdef FAST_IO
+
+/*
+ * Handle queuing of deferred MPP_PRE_SELECT actions
+ */
+
+void
+multi_postprocess_defer_reset_dowork (struct multi_context *m)
+{
+  while (multi_postprocess_defer_get (m))
+    ;
+}
+
+#ifdef MPPD_DEBUG
+void
+multi_postprocess_defer_max_exceeded (struct multi_postprocess_defer *mpd)
+{
+  mpd->max = mpd->iter;
+  msg (D_MPPD_DEBUG, "I/O POST DEFER MAX: max=%d n=%d", mpd->max, mpd->n);
+}
+#endif
+
+#endif
 
 /*
  * Top level event loop.

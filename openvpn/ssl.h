@@ -498,6 +498,8 @@ struct tls_session
   char *common_name;
   bool verified;                /* true if peer certificate was verified against CA */
 
+  char *x509_subject;
+
   /* not-yet-authenticated incoming client */
   struct openvpn_sockaddr untrusted_addr;
 
@@ -649,6 +651,8 @@ void tls_adjust_frame_parameters(struct frame *frame);
 const char *tls_common_name (struct tls_multi* multi, bool null);
 void tls_set_common_name (struct tls_multi *multi, const char *common_name);
 void tls_lock_common_name (struct tls_multi *multi);
+
+const char *tls_x509_subject (struct tls_multi *multi, bool null);
 
 bool tls_authenticated (struct tls_multi *multi);
 void tls_deauthenticate (struct tls_multi *multi);

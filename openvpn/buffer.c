@@ -728,16 +728,16 @@ character_class_debug (void)
 
 #endif
 
-#ifdef VERIFY_ALIGNMENT
+#if VERIFY_ALIGNMENT
 void
-valign4 (const struct buffer *buf, const char *file, const int line)
+valign (const struct buffer *buf, const char *file, const int line)
 {
   if (buf && buf->len)
     {
       int msglevel = D_ALIGN_DEBUG;
       const unsigned int u = (unsigned int) BPTR (buf);
 
-      if (u & (PAYLOAD_ALIGN-1))
+      if (u & (BUFFER_ALIGN-1))
 	msglevel = D_ALIGN_ERRORS;
 
       msg (msglevel, "%sAlignment at %s/%d ptr=" ptr_format " OLC=%d/%d/%d I=%s/%d",

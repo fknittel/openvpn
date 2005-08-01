@@ -93,7 +93,9 @@ struct mroute_helper {
 unsigned int mroute_extract_addr_from_packet (struct mroute_addr *src,
 					      struct mroute_addr *dest,
 					      struct buffer *buf,
-					      int tunnel_type);
+					      int tunnel_type,
+					      struct mroute_addr *esrc,
+					      struct mroute_addr *edest);
 
 bool mroute_extract_sockaddr_in (struct mroute_addr *addr,
 				 const struct sockaddr_in *saddr,

@@ -39,6 +39,7 @@
 #include "plugin.h"
 #include "manage.h"
 #include "proxy.h"
+#include "group.h"
 
 /*
  * Maximum number of parameters associated with an option,
@@ -222,8 +223,14 @@ struct options
   int status_file_version;
   int status_file_update_freq;
 
-  /* optimize TUN/TAP/UDP writes */
+#ifdef FAST_IO
+  /* optimize TUN/TAP/UDP read/writes */
   bool fast_io;
+#endif
+
+#if 0 // ALIGN_OPTIMIZE
+  bool align_optimize;
+#endif
 
 #if ENABLE_IP_PKTINFO
   bool multihome;
@@ -276,6 +283,10 @@ struct options
 
 #ifdef ENABLE_PLUGIN
   struct plugin_option_list *plugin_list;
+#endif
+
+#if GROUPS
+  struct group_info *group_info;
 #endif
 
 #ifdef USE_PTHREAD
@@ -441,6 +452,7 @@ struct options
 #define OPT_P_CONFIG          (1<<18)
 #define OPT_P_EXPLICIT_NOTIFY (1<<19)
 #define OPT_P_ECHO            (1<<20)
+#define OPT_P_GROUP           (1<<21)
 
 #define OPT_P_DEFAULT   (~OPT_P_INSTANCE)
 

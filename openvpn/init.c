@@ -1110,7 +1110,8 @@ frame_finalize_options (struct context *c, const struct options *o)
       frame_or_align_flags (&c->c2.frame,
 			    FRAME_HEADROOM_MARKER_FRAGMENT
 			    |FRAME_HEADROOM_MARKER_READ_LINK
-			    |FRAME_HEADROOM_MARKER_READ_STREAM);
+			    |FRAME_HEADROOM_MARKER_READ_STREAM
+			    |FRAME_HEADROOM_MARKER_DECRYPT);
     }
   
   frame_finalize (&c->c2.frame,
@@ -1630,6 +1631,10 @@ do_init_buffers (struct context *c)
 {
   c->c2.buffers = init_context_buffers (&c->c2.frame);
   c->c2.buffers_owned = true;
+
+  /* initialize buffer parameters */
+  ASSERT (buf_init (&c->c2.buffers->read_link_buf,
+		    FRAME_HEADROOM_ADJ (&c->c2.frame, FRAME_HEADROOM_MARKER_READ_LINK)));
 }
 
 #ifdef ENABLE_FRAGMENT
@@ -2067,10 +2072,12 @@ do_inherit_env (struct context *c, const struct env_set *src)
  * (1) The platform is not Windows
  * (2) --proto udp is enabled
  * (3) --shaper is disabled
+ * (4) JYFIXME maybe --fragment should also disable fast-io?
  */
 static void
 do_setup_fast_io (struct context *c)
 {
+#ifdef FAST_IO
   if (c->options.fast_io)
     {
 #ifdef WIN32
@@ -2089,6 +2096,7 @@ do_setup_fast_io (struct context *c)
 	}
 #endif
     }
+#endif
 }
 
 static void
@@ -2127,6 +2135,22 @@ do_close_plugins (struct context *c)
     }
 #endif
 }
+
+#if GROUPS
+
+static void
+do_open_groups (struct context *c, const bool server)
+{
+  group_context_init (&c->c2.group_context, c->options.group_info, server);
+}
+
+static void
+do_close_groups (struct context *c)
+{
+  group_context_close (&c->c2.group_context);
+}
+
+#endif /* GROUPS */
 
 #ifdef ENABLE_MANAGEMENT
 
@@ -2348,6 +2372,11 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
     c->c2.fragment = fragment_init (&c->c2.frame);
 #endif
 
+#if GROUPS
+  if (c->mode == CM_TOP || child)
+    do_open_groups (c, c->mode == CM_TOP);
+#endif
+
   /* init crypto layer */
   {
     unsigned int crypto_flags = 0;
@@ -2499,6 +2528,10 @@ close_instance (struct context *c)
 	/* close --status file */
 	do_close_status_output (c);
 
+#if GROUPS
+	do_close_groups (c);
+#endif
+
 #ifdef ENABLE_FRAGMENT
 	/* close fragmentation handler */
 	do_close_fragment (c);
@@ -2572,6 +2605,10 @@ inherit_context_child (struct context *dest,
   if (!dest->c2.buffers)
     dest->c2.buffers = src->c2.buffers;
 
+#if GROUPS
+  group_context_inherit (&dest->c2.group_context, &src->c2.group_context);
+#endif
+
   /* UDP inherits some extra things which TCP does not */
   if (dest->mode == CM_CHILD_UDP)
     {
@@ -2621,6 +2658,10 @@ inherit_context_top (struct context *dest,
   dest->c2.event_set_owned = false;
   dest->c2.link_socket_owned = false;
   dest->c2.buffers_owned = false;
+
+#if GROUPS
+  group_context_detach (&dest->c2.group_context);
+#endif
 
 #if 0
 #ifdef USE_PTHREAD

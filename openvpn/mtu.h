@@ -26,6 +26,7 @@
 #define MTU_H
 
 #include "buffer.h"
+#include "common.h"
 
 /*
  * 
@@ -48,43 +49,6 @@
  *    Compression overflow bytes is the worst-case size expansion that would be
  *    expected if we tried to compress mtu + extra_frame bytes of uncompressible data.
  */
-
-/*
- * Standard ethernet MTU
- */
-#define ETHERNET_MTU       1500
-
-/*
- * It is a fatal error if mtu is less than
- * this value for tun device.
- */
-#define TUN_MTU_MIN        100
-
-/*
- * Default MTU of network over which tunnel data will pass by TCP/UDP.
- */
-#define LINK_MTU_DEFAULT   1500
-
-/*
- * Default MTU of tunnel device.
- */
-#define TUN_MTU_DEFAULT    1500
-
-/*
- * MTU Defaults for TAP devices
- */
-#define TAP_MTU_EXTRA_DEFAULT  32
-
-/*
- * Default MSSFIX value, used for reducing TCP MTU size
- */
-#define MSSFIX_DEFAULT     1450
-
-/*
- * Alignment of payload data such as IP packet or
- * ethernet frame.
- */
-#define PAYLOAD_ALIGN 4
 
 struct frame {
   /*
@@ -244,8 +208,14 @@ static inline int
 frame_headroom (const struct frame *f, const unsigned int flag_mask)
 {
   const int offset = FRAME_HEADROOM_BASE (f);
+
+#if ALIGN_OPTIMIZE
+  const int adjust = 0;
+#else
   const int adjust = (flag_mask & f->align_flags) ? f->align_adjust : 0;
-  const int delta = ((PAYLOAD_ALIGN << 24) - (offset + adjust)) & (PAYLOAD_ALIGN - 1);
+#endif
+
+  const int delta = ((BUFFER_ALIGN << 24) - (offset + adjust)) & (BUFFER_ALIGN - 1);
   return offset + delta;
 }
 

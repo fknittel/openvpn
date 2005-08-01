@@ -128,7 +128,9 @@
 #define D_PLUGIN_DEBUG       LOGLEV(7, 70, M_DEBUG)  /* show verbose plugin calls */
 #define D_SOCKET_DEBUG       LOGLEV(7, 70, M_DEBUG)  /* show socket.[ch] debugging info */
 #define D_ALIGN_DEBUG        LOGLEV(7, 70, M_DEBUG)  /* show verbose struct alignment info */
+
 #define D_WORK_THREAD_DEBUG  LOGLEV(4, 70, M_DEBUG)  /* JYFIXME show verbose work thread info */
+#define D_MPPD_DEBUG         LOGLEV(4, 70, M_DEBUG)  /* JYFIXME show multi_postprocess_defer info */
 
 #define D_HANDSHAKE_VERBOSE  LOGLEV(8, 70, M_DEBUG)  /* show detailed description of each handshake */
 #define D_TLS_DEBUG_MED      LOGLEV(8, 70, M_DEBUG)  /* limited info from tls_session routines */

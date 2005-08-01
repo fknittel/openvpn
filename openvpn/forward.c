@@ -359,92 +359,6 @@ check_fragment_dowork (struct context *c)
 #endif
 
 /*
- * Compress, fragment, encrypt and HMAC-sign an outgoing packet.
- * Input: c->c2.buf
- * Output: c->c2.to_link
- */
-void
-encrypt_sign (struct context *c, bool comp_frag)
-{
-  struct context_buffers *b = c->c2.buffers;
-  const uint8_t *orig_buf = c->c2.buf.data;
-
-#if P2MP_SERVER
-  /*
-   * Drop non-TLS outgoing packet if client-connect script/plugin
-   * has not yet succeeded.
-   */
-  if (c->c2.context_auth != CAS_SUCCEEDED)
-    c->c2.buf.len = 0;
-#endif
-
-  if (comp_frag)
-    {
-#ifdef USE_LZO
-      /* Compress the packet. */
-      if (c->options.comp_lzo)
-	lzo_compress (&c->c2.buf, b->lzo_compress_buf, &c->c2.lzo_compwork, &c->c2.frame);
-#endif
-#ifdef ENABLE_FRAGMENT
-      if (c->c2.fragment)
-	fragment_outgoing (c->c2.fragment, &c->c2.buf, &c->c2.frame_fragment);
-#endif
-    }
-
-#ifdef USE_CRYPTO
-#ifdef USE_SSL
-  /*
-   * If TLS mode, get the key we will use to encrypt
-   * the packet.
-   */
-  if (c->c2.tls_multi)
-    {
-      //tls_mutex_lock (c->c2.tls_multi);
-      tls_pre_encrypt (c->c2.tls_multi, &c->c2.buf, &c->c2.crypto_options);
-    }
-#endif
-
-  /*
-   * Encrypt the packet and write an optional
-   * HMAC signature.
-   */
-  openvpn_encrypt (&c->c2.buf, b->encrypt_buf, &c->c2.crypto_options, &c->c2.frame);
-#endif
-  /*
-   * Get the address we will be sending the packet to.
-   */
-  link_socket_get_outgoing_addr (&c->c2.buf, get_link_socket_info (c),
-				 &c->c2.to_link_addr);
-#ifdef USE_CRYPTO
-#ifdef USE_SSL
-  /*
-   * In TLS mode, prepend the appropriate one-byte opcode
-   * to the packet which identifies it as a data channel
-   * packet and gives the low-permutation version of
-   * the key-id to the recipient so it knows which
-   * decrypt key to use.
-   */
-  if (c->c2.tls_multi)
-    {
-      tls_post_encrypt (c->c2.tls_multi, &c->c2.buf);
-      //tls_mutex_unlock (c->c2.tls_multi);
-    }
-#endif
-#endif
-
-  /* if null encryption, copy result to read_tun_buf */
-  if (orig_buf == c->c2.buf.data && c->c2.buf.data != b->read_tun_buf.data)
-    {
-      buf_assign (&b->read_tun_buf, &c->c2.buf);
-      c->c2.to_link = b->read_tun_buf;
-    }
-  else
-    {
-      c->c2.to_link = c->c2.buf;
-    }
-}
-
-/*
  * Coarse timers work to 1 second resolution.
  */
 static void
@@ -560,10 +474,10 @@ check_timeout_random_component (struct context *c)
  */
 
 static inline void
-socks_postprocess_incoming_link (struct context *c)
+socks_postprocess_incoming_link (struct context *c, struct openvpn_sockaddr *from)
 {
   if (c->c2.link_socket->socks_proxy && c->c2.link_socket->info.proto == PROTO_UDPv4)
-    socks_process_incoming_udp (&c->c2.buf, &c->c2.from.addr.in);
+    socks_process_incoming_udp (&c->c2.buf, &from->addr.in);
 }
 
 static inline void
@@ -593,12 +507,29 @@ link_socket_write_post_size_adjust (int *size,
 }
 #endif
 
+static void
+read_incoming_link_connection_reset (struct context *c, const int status)
+{
+  /* received a disconnect from a connection-oriented protocol */
+  if (c->options.inetd)
+    {
+      c->sig->signal_received = SIGTERM;
+      msg (D_STREAM_ERRORS, "Connection reset, inetd/xinetd exit [%d]", status);
+    }
+  else
+    {
+      c->sig->signal_received = SIGUSR1; /* SOFT-SIGUSR1 -- TCP connection reset */
+      msg (D_STREAM_ERRORS, "Connection reset, restarting [%d]", status);
+    }
+  c->sig->signal_text = "connection-reset";
+}
+
 /*
+ * Read from UDP/TCP socket.  Return true on EAGAIN.
  * Output: c->c2.buf
  */
-
-void
-read_incoming_link (struct context *c)
+bool
+read_incoming_link (struct context *c, struct openvpn_sockaddr *from)
 {
   /*
    * Set up for recvfrom call to read datagram
@@ -611,25 +542,27 @@ read_incoming_link (struct context *c)
   ASSERT (!c->c2.to_tun.len);
 
   c->c2.buf = c->c2.buffers->read_link_buf;
-  ASSERT (buf_init (&c->c2.buf, FRAME_HEADROOM_ADJ (&c->c2.frame, FRAME_HEADROOM_MARKER_READ_LINK)));
-  status = link_socket_read (c->c2.link_socket, &c->c2.buf, MAX_RW_SIZE_LINK (&c->c2.frame), &c->c2.from);
+
+#if 0
+  ASSERT (buf_init (&c->c2.buf, FRAME_HEADROOM_ADJ (&c->c2.frame, FRAME_HEADROOM_MARKER_READ_LINK))); // precalculated in do_init_buffers
+#endif
+
+  verify_align (&c->c2.buf);
+  status = link_socket_read (c->c2.link_socket, &c->c2.buf, MAX_RW_SIZE_LINK (&c->c2.frame), from);
+
+#ifdef FAST_IO
+  if (c->c2.fast_io && errno_eagain (status))
+    {
+      perf_pop ();
+      return true;
+    }
+#endif
 
   if (socket_connection_reset (c->c2.link_socket, status))
     {
-      /* received a disconnect from a connection-oriented protocol */
-      if (c->options.inetd)
-	{
-	  c->sig->signal_received = SIGTERM;
-	  msg (D_STREAM_ERRORS, "Connection reset, inetd/xinetd exit [%d]", status);
-	}
-      else
-	{
-	  c->sig->signal_received = SIGUSR1; /* SOFT-SIGUSR1 -- TCP connection reset */
-	  msg (D_STREAM_ERRORS, "Connection reset, restarting [%d]", status);
-	}
-      c->sig->signal_text = "connection-reset";
+      read_incoming_link_connection_reset (c, status);
       perf_pop ();
-      return;
+      return false;
     }
 
   /* check recvfrom status */
@@ -637,10 +570,11 @@ read_incoming_link (struct context *c)
 
 #ifdef ENABLE_SOCKS
   /* Remove socks header if applicable */
-  socks_postprocess_incoming_link (c);
+  socks_postprocess_incoming_link (c, from);
 #endif
 
   perf_pop ();
+  return false;
 }
 
 /*
@@ -649,7 +583,7 @@ read_incoming_link (struct context *c)
  */
 
 void
-process_incoming_link (struct context *c)
+process_incoming_link (struct context *c, struct openvpn_sockaddr *from)
 {
   struct gc_arena gc = gc_new ();
   bool decrypt_status;
@@ -682,7 +616,7 @@ process_incoming_link (struct context *c)
   msg (D_LINK_RW, "%s READ [%d] from %s: %s",
        proto2ascii (lsi->proto, true),
        BLEN (&c->c2.buf),
-       print_sockaddr (&c->c2.from, &gc),
+       print_sockaddr (from, &gc),
        PROTO_DUMP (&c->c2.buf, &gc));
 
   /*
@@ -694,8 +628,8 @@ process_incoming_link (struct context *c)
    */
   if (c->c2.buf.len > 0)
     {
-      if (!link_socket_verify_incoming_addr (&c->c2.buf, lsi, &c->c2.from))
-	link_socket_bad_incoming_addr (&c->c2.buf, lsi, &c->c2.from);
+      if (!link_socket_verify_incoming_addr (&c->c2.buf, lsi, from))
+	link_socket_bad_incoming_addr (&c->c2.buf, lsi, from);
 
 #ifdef USE_CRYPTO
 #ifdef USE_SSL
@@ -712,7 +646,7 @@ process_incoming_link (struct context *c)
 	   * and return false.
 	   */
 	  //tls_mutex_lock (c->c2.tls_multi);
-	  if (tls_pre_decrypt (c->c2.tls_multi, &c->c2.from, &c->c2.buf, &c->c2.crypto_options))
+	  if (tls_pre_decrypt (c->c2.tls_multi, from, &c->c2.buf, &c->c2.crypto_options))
 	    {
 	      interval_action (&c->c2.tmp_int);
 
@@ -772,7 +706,7 @@ process_incoming_link (struct context *c)
        * Also, update the persisted version of our packet-id.
        */
       if (!TLS_MODE (c))
-	link_socket_set_outgoing_addr (&c->c2.buf, lsi, &c->c2.from, NULL, c->c2.es);
+	link_socket_set_outgoing_addr (&c->c2.buf, lsi, from, NULL, c->c2.es);
 
       /* reset packet received timer */
       if (c->options.ping_rec_timeout && c->c2.buf.len > 0)
@@ -814,10 +748,10 @@ process_incoming_link (struct context *c)
 }
 
 /*
+ * Read from TUN/TAP socket.  Return true on EAGAIN.
  * Output: c->c2.buf
  */
-
-void
+bool
 read_incoming_tun (struct context *c)
 {
   perf_push (PERF_READ_IN_TUN);
@@ -827,13 +761,25 @@ read_incoming_tun (struct context *c)
    */
   ASSERT (!c->c2.to_link.len);
 
-  c->c2.buf = c->c2.buffers->read_tun_buf;
 #ifdef TUN_PASS_BUFFER
   read_tun_buffered (c->c1.tuntap, &c->c2.buf, MAX_RW_SIZE_TUN (&c->c2.frame));
 #else
-  ASSERT (buf_init (&c->c2.buf, FRAME_HEADROOM (&c->c2.frame)));
-  ASSERT (buf_safe (&c->c2.buf, MAX_RW_SIZE_TUN (&c->c2.frame)));
-  c->c2.buf.len = read_tun (c->c1.tuntap, BPTR (&c->c2.buf), MAX_RW_SIZE_TUN (&c->c2.frame));
+ {
+   const int max_rw_size_tun = MAX_RW_SIZE_TUN (&c->c2.frame);
+   buf_ref (&c->c2.buf, &c->c2.buffers->read_tun_buf);
+   ASSERT (buf_init (&c->c2.buf, FRAME_HEADROOM (&c->c2.frame)));
+   ASSERT (buf_safe (&c->c2.buf, max_rw_size_tun));
+   verify_align(&c->c2.buf);
+   c->c2.buf.len = read_tun (c->c1.tuntap, BPTR (&c->c2.buf), max_rw_size_tun);
+ }
+#endif
+
+#ifdef FAST_IO
+  if (c->c2.fast_io && errno_eagain (c->c2.buf.len))
+    {
+      perf_pop ();
+      return true;
+    }
 #endif
 
   /* Was TUN/TAP interface stopped? */
@@ -843,13 +789,14 @@ read_incoming_tun (struct context *c)
       c->sig->signal_text = "tun-stop";
       msg (M_INFO, "TUN/TAP interface has been stopped, exiting");
       perf_pop ();
-      return;		  
+      return false;
     }
 
   /* Check the status return from read() */
   check_status (c->c2.buf.len, "read from TUN/TAP", NULL, c->c1.tuntap);
 
   perf_pop ();
+  return false;
 }
 
 /*
@@ -1015,6 +962,7 @@ process_outgoing_link (struct context *c)
 	    socks_preprocess_outgoing_link (c, &to_addr, &size_delta);
 #endif
 	    /* Send packet */
+	    verify_align (&c->c2.to_link);
 	    size = link_socket_write (c->c2.link_socket, &c->c2.to_link, to_addr);
 
 #ifdef ENABLE_SOCKS
@@ -1101,6 +1049,7 @@ process_outgoing_tun (struct context *c)
 #ifdef TUN_PASS_BUFFER
       size = write_tun_buffered (c->c1.tuntap, &c->c2.to_tun);
 #else
+      verify_align(&c->c2.to_tun);
       size = write_tun (c->c1.tuntap, BPTR (&c->c2.to_tun), BLEN (&c->c2.to_tun));
 #endif
 
@@ -1142,6 +1091,92 @@ process_outgoing_tun (struct context *c)
 
   perf_pop ();
   gc_free (&gc);
+}
+
+/*
+ * Compress, fragment, encrypt and HMAC-sign an outgoing packet.
+ * Input: c->c2.buf
+ * Output: c->c2.to_link
+ */
+void
+encrypt_sign (struct context *c, bool comp_frag)
+{
+  struct context_buffers *b = c->c2.buffers;
+  const uint8_t *orig_buf = c->c2.buf.data;
+
+#if P2MP_SERVER
+  /*
+   * Drop non-TLS outgoing packet if client-connect script/plugin
+   * has not yet succeeded.
+   */
+  if (c->c2.context_auth != CAS_SUCCEEDED)
+    c->c2.buf.len = 0;
+#endif
+
+  if (comp_frag)
+    {
+#ifdef USE_LZO
+      /* Compress the packet. */
+      if (c->options.comp_lzo)
+	lzo_compress (&c->c2.buf, b->lzo_compress_buf, &c->c2.lzo_compwork, &c->c2.frame);
+#endif
+#ifdef ENABLE_FRAGMENT
+      if (c->c2.fragment)
+	fragment_outgoing (c->c2.fragment, &c->c2.buf, &c->c2.frame_fragment);
+#endif
+    }
+
+#ifdef USE_CRYPTO
+#ifdef USE_SSL
+  /*
+   * If TLS mode, get the key we will use to encrypt
+   * the packet.
+   */
+  if (c->c2.tls_multi)
+    {
+      //tls_mutex_lock (c->c2.tls_multi);
+      tls_pre_encrypt (c->c2.tls_multi, &c->c2.buf, &c->c2.crypto_options);
+    }
+#endif
+
+  /*
+   * Encrypt the packet and write an optional
+   * HMAC signature.
+   */
+  openvpn_encrypt (&c->c2.buf, b->encrypt_buf, &c->c2.crypto_options, &c->c2.frame);
+#endif
+  /*
+   * Get the address we will be sending the packet to.
+   */
+  link_socket_get_outgoing_addr (&c->c2.buf, get_link_socket_info (c),
+				 &c->c2.to_link_addr);
+#ifdef USE_CRYPTO
+#ifdef USE_SSL
+  /*
+   * In TLS mode, prepend the appropriate one-byte opcode
+   * to the packet which identifies it as a data channel
+   * packet and gives the low-permutation version of
+   * the key-id to the recipient so it knows which
+   * decrypt key to use.
+   */
+  if (c->c2.tls_multi)
+    {
+      tls_post_encrypt (c->c2.tls_multi, &c->c2.buf);
+      //tls_mutex_unlock (c->c2.tls_multi);
+    }
+#endif
+#endif
+
+  /* if null encryption, copy result to read_tun_buf */
+  if (orig_buf == c->c2.buf.data && c->c2.buf.data != b->read_tun_buf.data)
+    {
+      buf_assign (&b->read_tun_buf, &c->c2.buf);
+      c->c2.to_link = b->read_tun_buf;
+    }
+  else
+    {
+      c->c2.to_link = c->c2.buf;
+    }
 }
 
 void
@@ -1203,7 +1238,7 @@ pre_select (struct context *c)
  */
 
 void
-io_wait_dowork (struct context *c, const unsigned int flags)
+io_wait_slow (struct context *c, const unsigned int flags)
 {
   unsigned int socket = 0;
   unsigned int tuntap = 0;
@@ -1369,11 +1404,36 @@ io_wait_dowork (struct context *c, const unsigned int flags)
   if (c->c2.event_set_status & ES_ERROR)
     get_signal (&c->sig->signal_received);
 
+#ifdef FAST_IO
+  /* if fast i/o, retry read until EAGAIN */
+  if (c->c2.fast_io)
+    {
+      if (c->c2.event_set_status & (SOCKET_READ|TUN_READ))
+	c->c2.event_set_status_hint = (c->c2.event_set_status & (SOCKET_READ|TUN_READ));
+      else
+	c->c2.event_set_status_hint = 0;
+    }
+#endif
+
   dmsg (D_EVENT_WAIT, "I/O WAIT status=0x%04x", c->c2.event_set_status);
 }
 
+static inline void
+do_socket_read (struct context *c)
+{
+  if (!read_incoming_link_eagain (c))
+    process_incoming_link (c, &c->c2.from_addr);
+}
+
+static inline void
+do_tun_read (struct context *c)
+{
+  if (!read_incoming_tun_eagain (c))
+    process_incoming_tun (c);
+}
+
 void
-process_io (struct context *c)
+process_io (struct context *c, bool *io_order_toggle)
 {
   const unsigned int status = c->c2.event_set_status;
 
@@ -1385,28 +1445,33 @@ process_io (struct context *c)
     }
 #endif
 
-  /* TCP/UDP port ready to accept write */
-  if (status & SOCKET_WRITE)
+  /*
+   * Process I/O
+   */
+  if (status & (SOCKET_WRITE|TUN_WRITE))
     {
-      process_outgoing_link (c);
+      if (status & SOCKET_WRITE)
+	process_outgoing_link (c);
+      else if (status & TUN_WRITE)
+	process_outgoing_tun (c);
     }
-  /* TUN device ready to accept write */
-  else if (status & TUN_WRITE)
+  else if (status & (SOCKET_READ|TUN_READ))
     {
-      process_outgoing_tun (c);
-    }
-  /* Incoming data on TCP/UDP port */
-  else if (status & SOCKET_READ)
-    {
-      read_incoming_link (c);
-      if (!IS_SIG (c))
-	process_incoming_link (c);
-    }
-  /* Incoming data on TUN device */
-  else if (status & TUN_READ)
-    {
-      read_incoming_tun (c);
-      if (!IS_SIG (c))
-	process_incoming_tun (c);
+      if (!*io_order_toggle)
+	{
+	  if (status & SOCKET_READ)
+	    do_socket_read (c);
+	  else if (status & TUN_READ)
+	    do_tun_read (c);
+	  *io_order_toggle = true;
+	}
+      else
+	{
+	  if (status & TUN_READ)
+	    do_tun_read (c);
+	  else if (status & SOCKET_READ)
+	    do_socket_read (c);
+	  *io_order_toggle = false;
+	}
     }
 }

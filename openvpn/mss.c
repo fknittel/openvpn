@@ -47,7 +47,7 @@ mss_fixup (struct buffer *buf, int maxmss)
   if (BLEN (buf) < (int) sizeof (struct openvpn_iphdr))
     return;
   
-  verify_align_4 (buf);
+  verify_align (buf);
   pip = (struct openvpn_iphdr *) BPTR (buf);
 
   hlen = OPENVPN_IPH_GET_LEN (pip->version_len);
@@ -80,7 +80,7 @@ mss_fixup_dowork (struct buffer *buf, uint16_t maxmss)
 
   ASSERT (BLEN (buf) >= (int) sizeof (struct openvpn_tcphdr));
 
-  verify_align_4 (buf);
+  verify_align (buf);
   tc = (struct openvpn_tcphdr *) BPTR (buf);
   hlen = OPENVPN_TCPH_GET_DOFF (tc->doff_res);
 

@@ -245,6 +245,114 @@ p2p_iow_flags (const struct context *c)
   return flags;
 }
 
+static inline unsigned int
+iow_to_ess (const unsigned int flags)
+{
+  unsigned int ess = 0;
+  if (flags & IOW_TO_TUN)
+    ess |= TUN_WRITE;
+  if (flags & (IOW_TO_LINK|IOW_MBUF))
+    ess |= SOCKET_WRITE;
+  return ess;
+}
+
+static inline unsigned int
+ess_hint (const struct context *c)
+{
+#ifdef FAST_IO
+  return c->c2.event_set_status_hint;
+#else
+  return 0;
+#endif
+}
+
+static inline void
+ess_hint_eagain (struct context *c, const unsigned int mask)
+{
+#ifdef FAST_IO
+  c->c2.event_set_status_hint &= ~mask;
+#endif
+}
+
+static inline void
+ess_hint_reset (struct context *c)
+{
+#ifdef FAST_IO
+  c->c2.event_set_status_hint = 0;
+#endif
+}
+
+static inline bool
+p2p_idle (const struct context *c)
+{
+#ifdef FAST_IO
+  return !c->c2.fast_io || (!ANY_OUT(c) && !ess_hint (c));
+#else
+  return true;
+#endif
+}
+
+static inline bool
+is_io_wait_fast_path (struct context *c, const unsigned int flags)
+{
+#ifdef FAST_IO
+  if (c->c2.fast_io)
+    {
+      if (flags & (IOW_TO_TUN|IOW_TO_LINK|IOW_MBUF))
+	{
+	  /* fast path -- only for TUN/TAP/UDP writes */
+	  c->c2.event_set_status = iow_to_ess (flags);
+	  return true;
+	}
+      else if (c->c2.event_set_status_hint)
+	{
+	  /* fast path -- guess status based on previous event */
+	  c->c2.event_set_status = c->c2.event_set_status_hint;
+	  return true;
+	}
+    }
+#endif
+  return false;
+}
+
+/*
+ * Like read_incoming_link/read_incoming_tun
+ * but save eagain/not-eagain status
+ * in ess_hint.
+ */
+
+static inline bool
+read_incoming_link_eagain (struct context *c)
+{
+  if (read_incoming_link (c, &c->c2.from_addr))
+    {
+#ifdef FAST_IO
+      ess_hint_eagain (c, SOCKET_READ);
+#else
+      ASSERT (0);
+#endif
+      return true;
+    }
+  else
+    return IS_SIG (c);
+}
+
+static inline bool
+read_incoming_tun_eagain (struct context *c)
+{
+  if (read_incoming_tun (c))
+    {
+#ifdef FAST_IO
+      ess_hint_eagain (c, TUN_READ);
+#else
+      ASSERT (0);
+#endif
+      return true;
+    }
+  else
+    return IS_SIG (c);
+}
+
 /*
  * This is the core I/O wait function, used for all I/O waits except
  * for TCP in server mode.
@@ -252,22 +360,10 @@ p2p_iow_flags (const struct context *c)
 static inline void
 io_wait (struct context *c, const unsigned int flags)
 {
-  void io_wait_dowork (struct context *c, const unsigned int flags);
-
-  if (c->c2.fast_io && (flags & (IOW_TO_TUN|IOW_TO_LINK|IOW_MBUF)))
-    {
-      /* fast path -- only for TUN/TAP/UDP writes */
-      unsigned int ret = 0;
-      if (flags & IOW_TO_TUN)
-	ret |= TUN_WRITE;
-      if (flags & (IOW_TO_LINK|IOW_MBUF))
-	ret |= SOCKET_WRITE;
-      c->c2.event_set_status = ret;
-    }
-  else
+  if (!is_io_wait_fast_path (c, flags))
     {
       /* slow path */
-      io_wait_dowork (c, flags);
+      io_wait_slow (c, flags);
     }
 }
 

@@ -193,7 +193,13 @@ static const char usage_message[] =
 #if ENABLE_IP_PKTINFO
   "--multihome     : Configure a multi-homed UDP server.\n"
 #endif
-  "--fast-io       : (experimental) Optimize TUN/TAP/UDP writes.\n"
+#ifdef FAST_IO
+  "--fast-io       : (experimental) Optimize event loop for high throughput.\n"
+#endif
+#if 0 // ALIGN_OPTIMIZE
+  "--align-optimize : (experimental) Modify protocol ordering to improve\n"
+  "                   alignment efficiency.  Use on both ends of connection.\n"
+#endif
   "--remap-usr1 s  : On SIGUSR1 signals, remap signal (s='SIGHUP' or 'SIGTERM').\n"
   "--persist-tun   : Keep tun/tap device open across SIGUSR1 or --ping-restart.\n"
   "--persist-remote-ip : Keep remote IP address across SIGUSR1 or --ping-restart.\n"
@@ -920,6 +926,21 @@ show_http_proxy_options (const struct http_proxy_options *o)
 }
 #endif
 
+#if GROUPS && defined(ENABLE_DEBUG)
+
+static void
+show_group_options (const struct options *o)
+{
+  if (o->group_info)
+    {
+      struct status_output *so = status_open (NULL, 0, D_SHOW_PARMS, NULL, 0);
+      group_info_print (o->group_info, "  ", so);
+      status_close (so);
+    }
+}
+
+#endif
+
 void
 options_detach (struct options *o)
 {
@@ -1082,7 +1103,13 @@ show_settings (const struct options *o)
   SHOW_BOOL (socks_proxy_retry);
 #endif
 
+#ifdef FAST_IO
   SHOW_BOOL (fast_io);
+#endif
+
+#if 0 // ALIGN_OPTIMIZE
+  SHOW_BOOL (align_optimize);
+#endif
 
 #ifdef USE_LZO
   SHOW_BOOL (comp_lzo);
@@ -1172,7 +1199,12 @@ show_settings (const struct options *o)
   SHOW_INT (route_method);
   show_tuntap_options (&o->tuntap_options);
 #endif
+
+#if GROUPS
+  show_group_options (o);
 #endif
+
+#endif /* ENABLE_DEBUG */
 }
 
 #undef SHOW_PARM
@@ -1193,6 +1225,17 @@ init_http_options_if_undefined (struct options *o)
       o->http_proxy_options->http_version = "1.0";
     }
   return o->http_proxy_options;
+}
+
+#endif
+
+#if GROUPS
+
+void
+group_init_if_uninitialized (struct options *o)
+{
+  if (!o->group_info)
+    o->group_info = group_info_new (&o->gc);
 }
 
 #endif
@@ -1238,6 +1281,14 @@ options_postprocess (struct options *options, bool first_time)
 	    e->port = options->remote_port;
 	}
     }
+
+#if GROUPS
+  /*
+   * Compile group inheritance graph
+   */
+  if (options->group_info)
+    group_inherit_compile (options->group_info, &options->gc);
+#endif
 
   /*
    * If --mssfix is supplied without a parameter, default
@@ -1559,6 +1610,10 @@ options_postprocess (struct options *options, bool first_time)
 	msg (M_USAGE, "--auth-user-pass-verify requires --mode server");
       if (options->ifconfig_pool_linear)
 	msg (M_USAGE, "--ifconfig-pool-linear requires --mode server");
+#if GROUPS
+      if (options->group_info)
+	msg (M_USAGE, "--group directives require --mode server");      
+#endif
     }
 #endif /* P2MP_SERVER */
 
@@ -3273,11 +3328,20 @@ add_option (struct options *options,
       VERIFY_PERMISSION (OPT_P_GENERAL);
       options->bind_local = false;
     }
+#ifdef FAST_IO
   else if (streq (p[0], "fast-io"))
     {
       VERIFY_PERMISSION (OPT_P_GENERAL);
       options->fast_io = true;
     }
+#endif
+#if 0 // ALIGN_OPTIMIZE
+  else if (streq (p[0], "align-optimize"))
+    {
+      VERIFY_PERMISSION (OPT_P_GENERAL);
+      options->align_optimize = true;
+    }
+#endif
   else if (streq (p[0], "inactive") && p[1])
     {
       ++i;
@@ -4518,6 +4582,51 @@ add_option (struct options *options,
     }
 #endif /* USE_SSL */
 #endif /* USE_CRYPTO */
+#if GROUPS
+  else if (streq (p[0], "group-ip-pool") && p[1] && p[2] && p[3])
+    {
+      i += 3;
+      VERIFY_PERMISSION (OPT_P_GENERAL);
+      group_init_if_uninitialized (options);
+      group_ip_pool (options->group_info, &options->gc, msglevel, p[1], p[2], p[3]);
+    }
+  else if (streq (p[0], "group-by-x509") && p[1])
+    {
+      i += (string_array_len (p) - 1);
+      VERIFY_PERMISSION (OPT_P_GENERAL);
+      group_init_if_uninitialized (options);
+      group_by_x509 (options->group_info, &options->gc, msglevel, p[1], &p[2]);
+    }
+  else if (streq (p[0], "group") && p[1]) // JYFIXME -- name clash!
+    {
+      ++i;
+      VERIFY_PERMISSION (OPT_P_GROUP);
+      if (options->group_info)
+	;
+      else if (permission_mask & OPT_P_INSTANCE)
+	{
+	  msg (msglevel, "WARNING: no groups have been defined, client instance group directive will be ignored");
+	  goto err;
+	}
+      else
+	group_init_if_uninitialized (options);
+      group_default (options->group_info, &options->gc, msglevel, p[1]);
+    }
+  else if (streq (p[0], "group-acl-enable"))
+    {
+      i += (string_array_len (p) - 1);
+      VERIFY_PERMISSION (OPT_P_GENERAL);
+      group_init_if_uninitialized (options);
+      group_acl_enable (options->group_info, &options->gc, msglevel, &p[1]);
+    }
+  else if (streq (p[0], "group-acl") && p[1])
+    {
+      i += (string_array_len (p) - 1);
+      VERIFY_PERMISSION (OPT_P_GENERAL);
+      group_init_if_uninitialized (options);
+      group_acl (options->group_info, &options->gc, msglevel, p[1], &p[2]);
+    }
+#endif /* GROUPS */
 #ifdef TUNSETPERSIST
   else if (streq (p[0], "rmtun"))
     {

@@ -339,6 +339,28 @@ ignore_sys_error (const int err)
   return false;
 }
 
+/*
+ * Return true on EAGAIN or Windows equivalent
+ */
+static inline bool
+is_eagain (const int err)
+{
+#ifdef WIN32
+  if (err == WSAEWOULDBLOCK)
+    return true;
+#else
+  if (err == EAGAIN)
+    return true;
+#endif
+  return false;
+}
+
+static inline bool
+errno_eagain (const int status)
+{
+  return status < 0 && is_eagain(openvpn_errno_socket());
+}
+
 #include "errlevel.h"
 
 #endif

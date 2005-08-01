@@ -27,17 +27,12 @@
 
 #include "basic.h"
 #include "thread.h"
-
-/*
- * Define verify_align function, otherwise
- * it will be a noop.
- */
-//#define VERIFY_ALIGNMENT
+#include "common.h"
 
 /*
  * Keep track of source file/line of buf_init calls
  */
-#ifdef VERIFY_ALIGNMENT
+#if VERIFY_ALIGNMENT
 #define BUF_INIT_TRACKING
 #endif
 
@@ -132,6 +127,13 @@ buf_reset (struct buffer *buf)
   buf->offset = 0;
   buf->len = 0;
   buf->data = NULL;
+}
+
+static inline void
+buf_ref (struct buffer *dest, const struct buffer *src)
+{
+  dest->len = src->len;
+  dest->data = src->data;
 }
 
 static inline bool
@@ -401,8 +403,24 @@ buf_write_prepend (struct buffer *dest, const void *src, int size)
 static inline bool
 buf_write_u8 (struct buffer *dest, int data)
 {
-  uint8_t u8 = (uint8_t) data;
-  return buf_write (dest, &u8, sizeof (uint8_t));
+  if (dest->offset + dest->len < dest->capacity)
+    {
+      *BEND(dest) = (uint8_t) data;
+      ++dest->len;
+      return true;
+    }
+  else
+    return false;
+}
+
+static inline bool
+buf_prepend_u8 (struct buffer *dest, int data)
+{
+  uint8_t *p = buf_prepend (dest, sizeof (uint8_t));
+  if (!p)
+    return false;
+  *p = (uint8_t) data;
+  return true;
 }
 
 static inline bool
@@ -494,6 +512,15 @@ buf_read_u8 (struct buffer *buf)
   ret = *BPTR(buf);
   buf_advance (buf, 1);
   return ret;
+}
+
+static inline int
+buf_pop_u8 (struct buffer *buf)
+{
+  if (buf->len < 1)
+    return -1;
+  --buf->len;
+  return *BEND(buf);
 }
 
 static inline int
@@ -612,11 +639,11 @@ void character_class_debug (void);
 /*
  * Verify that a pointer is correctly aligned
  */
-#ifdef VERIFY_ALIGNMENT
-  void valign4 (const struct buffer *buf, const char *file, const int line);
-# define verify_align_4(ptr) valign4(buf, __FILE__, __LINE__)
+#if VERIFY_ALIGNMENT
+  void valign (const struct buffer *buf, const char *file, const int line);
+# define verify_align(buf) valign(buf, __FILE__, __LINE__)
 #else
-# define verify_align_4(ptr)
+# define verify_align(buf)
 #endif
 
 /*

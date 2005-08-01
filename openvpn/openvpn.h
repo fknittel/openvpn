@@ -217,13 +217,17 @@ struct context_2
 
   unsigned int event_set_status;
 
-  struct link_socket *link_socket;	 /* socket used for TCP/UDP connection to remote */
+#ifdef FAST_IO
+  unsigned int event_set_status_hint;
+#endif
+
+  struct link_socket *link_socket;	      /* socket used for TCP/UDP connection to remote */
   bool link_socket_owned;
   struct link_socket_info *link_socket_info;
-  const struct link_socket *accept_from; /* possibly do accept() on a parent link_socket */
+  const struct link_socket *accept_from;      /* possibly do accept() on a parent link_socket */
 
-  struct openvpn_sockaddr *to_link_addr;	 /* IP address of remote */
-  struct openvpn_sockaddr from;               /* address of incoming datagram */
+  struct openvpn_sockaddr *to_link_addr;      /* IP address of remote */
+  struct openvpn_sockaddr from_addr;          /* address of incoming datagram */
 
   /* MTU frame parameters */
   struct frame frame;
@@ -394,6 +398,10 @@ struct context_2
      but we have not exited yet */
   time_t explicit_exit_notification_time_wait;
   struct event_timeout explicit_exit_notification_interval;
+#endif
+
+#if GROUPS
+  struct group_context group_context;
 #endif
 
   /* environmental variables to pass to scripts */

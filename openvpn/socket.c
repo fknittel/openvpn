@@ -1946,16 +1946,8 @@ setenv_in_addr_t (struct env_set *es, const char *name_prefix, in_addr_t addr, c
  * Convert protocol names between index and ascii form.
  */
 
-struct proto_names {
-  const char *short_form;
-  const char *display_form;
-  bool	is_dgram;
-  bool	is_net;
-  sa_family_t proto_af;
-};
-
 /* Indexed by PROTO_x */
-static const struct proto_names proto_names[PROTO_N] = {
+const struct proto_names proto_names[PROTO_N] = {
   {"proto-uninitialized",        "proto-NONE",0,0, AF_UNSPEC},
   {"udp",        "UDPv4",1,1, AF_INET},
   {"tcp-server", "TCPv4_SERVER",0,1, AF_INET},
@@ -1972,35 +1964,6 @@ static const struct proto_names proto_names[PROTO_N] = {
   {"unix-stream","UNIX_STREAM",1,0, AF_UNIX }
 #endif
 };
-
-bool
-proto_is_net(int proto)
-{
-  if (proto < 0 || proto >= PROTO_N)
-    ASSERT(0);
-  return proto_names[proto].is_net;
-}
-bool
-proto_is_dgram(int proto)
-{
-  if (proto < 0 || proto >= PROTO_N)
-    ASSERT(0);
-  return proto_names[proto].is_dgram;
-}
-bool
-proto_is_udp(int proto)
-{
-  if (proto < 0 || proto >= PROTO_N)
-    ASSERT(0);
-  return proto_names[proto].is_dgram&&proto_names[proto].is_net;
-}
-bool
-proto_is_tcp(int proto)
-{
-  if (proto < 0 || proto >= PROTO_N)
-    ASSERT(0);
-  return (!proto_names[proto].is_dgram)&&proto_names[proto].is_net;
-}
 
 sa_family_t 
 proto_sa_family(int proto)
@@ -2247,17 +2210,23 @@ link_socket_read_udp_posix (struct link_socket *sock,
 {
   socklen_t fromlen = sizeof (from->addr);
   socklen_t expectedlen = af_addr_size(proto_sa_family(sock->info.proto));
-  CLEAR (*from);
+
+#if 0
+  CLEAR (*from); /* probably not necessary */
+#endif
+
   ASSERT (buf_safe (buf, maxsize));
+
 #if ENABLE_IP_PKTINFO
   /* if (sock->info.proto == PROTO_UDPv4 && sock->socket_flags & SF_USE_IP_PKTINFO) */
   /* Both PROTO_UDPv4 and PROTO_UDPv6 */
-  if (proto_is_udp(sock->info.proto) && sock->socket_flags & SF_USE_IP_PKTINFO)
+  if ((sock->socket_flags & SF_USE_IP_PKTINFO) && proto_is_udp(sock->info.proto))
     fromlen = link_socket_read_udp_posix_recvmsg (sock, buf, maxsize, from);
   else
 #endif
     buf->len = recvfrom (sock->sd, BPTR (buf), maxsize, 0,
 		       &from->addr.sa, &fromlen);
+
   if (buf->len >= 0 && expectedlen && fromlen != expectedlen)
     bad_address_length (fromlen, expectedlen);
   return buf->len;

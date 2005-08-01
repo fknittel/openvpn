@@ -54,18 +54,20 @@
 
 #define IOW_READ            (IOW_READ_TUN|IOW_READ_LINK)
 
+void io_wait_slow (struct context *c, const unsigned int flags);
+
 void pre_select (struct context *c);
 
-void process_io (struct context *c);
+void process_io (struct context *c, bool *io_order_toggle);
 
 void encrypt_sign (struct context *c, bool comp_frag);
 
 const char *wait_status_string (struct context *c, struct gc_arena *gc);
 void show_wait_status (struct context *c);
 
-void read_incoming_link (struct context *c);
-void process_incoming_link (struct context *c);
-void read_incoming_tun (struct context *c);
+bool read_incoming_link (struct context *c, struct openvpn_sockaddr *from);
+void process_incoming_link (struct context *c, struct openvpn_sockaddr *from);
+bool read_incoming_tun (struct context *c);
 void process_incoming_tun (struct context *c);
 void process_outgoing_link (struct context *c);
 void process_outgoing_tun (struct context *c);

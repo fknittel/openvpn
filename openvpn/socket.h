@@ -383,11 +383,63 @@ socket_descriptor_t socket_do_accept (socket_descriptor_t sd,
 /*
  * proto related
  */
-bool proto_is_net(int proto);
-bool proto_is_dgram(int proto);
-bool proto_is_udp(int proto);
-bool proto_is_tcp(int proto);
 
+/* 
+ * Use enum's instead of #define to allow for easier
+ * optional proto support
+ */
+enum proto_num {
+	PROTO_NONE, /* catch for uninitialized */
+	PROTO_UDPv4,
+	PROTO_TCPv4_SERVER,
+	PROTO_TCPv4_CLIENT,
+	PROTO_TCPv4,
+	PROTO_UDPv6,
+	PROTO_TCPv6_SERVER,
+	PROTO_TCPv6_CLIENT,
+	PROTO_TCPv6,
+	PROTO_UNIX_DGRAM,
+	PROTO_UNIX_STREAM,
+	PROTO_N
+};
+
+struct proto_names {
+  const char *short_form;
+  const char *display_form;
+  bool	is_dgram;
+  bool	is_net;
+  sa_family_t proto_af;
+};
+
+extern const struct proto_names proto_names[PROTO_N];
+
+static inline bool
+proto_is_net(int proto)
+{
+  ASSERT (proto >= 0 && proto < PROTO_N);
+  return proto_names[proto].is_net;
+}
+
+static inline bool
+proto_is_dgram(int proto)
+{
+  ASSERT (proto >= 0 && proto < PROTO_N);
+  return proto_names[proto].is_dgram;
+}
+
+static inline bool
+proto_is_udp(int proto)
+{
+  ASSERT (proto >= 0 && proto < PROTO_N);
+  return proto_names[proto].is_dgram && proto_names[proto].is_net;
+}
+
+static inline bool
+proto_is_tcp(int proto)
+{
+  ASSERT (proto >= 0 && proto < PROTO_N);
+  return (!proto_names[proto].is_dgram) && proto_names[proto].is_net;
+}
 
 /*
  * DNS resolution
@@ -411,40 +463,6 @@ in_addr_t getaddr (unsigned int flags,
 /*
  * Transport protocol naming and other details.
  */
-
-#if 0 /* PRE UDPv6/TCPv6 code */
-#define PROTO_NONE         0 /* catch for uninitialized */
-#define PROTO_UDPv4        1
-#define PROTO_TCPv4_SERVER 2
-#define PROTO_TCPv4_CLIENT 3
-#define PROTO_TCPv4        4
-#define PROTO_UDPv6        5
-#define PROTO_TCPv6_SERVER 6
-#define PROTO_TCPv6_CLIENT 7
-#define PROTO_TCPv6        8
-#define PROTO_UNIX_DGRAM   9
-#define PROTO_UNIX_STREAM  10
-#define PROTO_N            11
-#endif
-
-/* 
- * Use enum's instead of #define to allow for easier
- * optional proto support
- */
-enum proto_num {
-	PROTO_NONE, /* catch for uninitialized */
-	PROTO_UDPv4,
-	PROTO_TCPv4_SERVER,
-	PROTO_TCPv4_CLIENT,
-	PROTO_TCPv4,
-	PROTO_UDPv6,
-	PROTO_TCPv6_SERVER,
-	PROTO_TCPv6_CLIENT,
-	PROTO_TCPv6,
-	PROTO_UNIX_DGRAM,
-	PROTO_UNIX_STREAM,
-	PROTO_N
-};
 
 int ascii2proto (const char* proto_name);
 const char *proto2ascii (int proto, bool display_form);

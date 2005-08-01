@@ -62,6 +62,7 @@ EXE = openvpn.exe
 HEADERS = \
 	base64.h \
 	basic.h \
+	bitarray.h \
 	buffer.h \
 	circ_list.h \
 	common.h \
@@ -72,11 +73,14 @@ HEADERS = \
 	errlevel.h \
 	error.h \
 	event.h \
+	fastlook.h \
+	fastlook-inline.h \
         fdmisc.h \
 	forward-inline.h \
 	forward.h \
 	fragment.h \
         gremlin.h \
+	group.h \
 	helper.h \
 	init.h \
 	integer.h \
@@ -120,6 +124,7 @@ HEADERS = \
 	socket.h \
 	socks.h \
 	ssl.h \
+	ssl-x509.h \
         status.h \
 	syshead.h \
         thread.h \
@@ -133,10 +138,12 @@ OBJS =  base64.o \
 	cryptoapi.o \
 	error.o \
 	event.o \
+	fastlook.o \
 	fdmisc.o \
 	forward.o \
         fragment.o \
 	gremlin.o \
+	group.o \
 	helper.o \
 	init.o \
 	interval.o \

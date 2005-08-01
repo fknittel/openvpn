@@ -268,7 +268,7 @@ tcp_opt_process (struct buffer *buf, int optnum,  bool (*callback)(uint8_t *opt,
 
   ASSERT (BLEN (buf) >= (int) sizeof (struct openvpn_tcphdr));
 
-  verify_align_4 (buf);
+  verify_align (buf);
 
   ptcp = (struct openvpn_tcphdr *) BPTR (buf);
   hlen = OPENVPN_TCPH_GET_DOFF (ptcp->doff_res);

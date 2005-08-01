@@ -376,7 +376,7 @@ dont_mute (unsigned int flags)
 void
 assert_failed (const char *filename, int line)
 {
-  crash (); // JYFIXME
+  //crash (); // JYFIXME
   msg (M_FATAL, "Assertion failed at %s:%d", filename, line);
 }
 
