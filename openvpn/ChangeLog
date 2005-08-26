@@ -3,6 +3,10 @@ Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
 
 $Id$
 
+2005.08.26 -- Version 2.1-alpha5
+
+* Merged in 2.0.2 changes.
+
 2005.08.26 -- Version 2.1-alpha4
 
 * Beginning of refactoring of fast-io to cover all modes.
@@ -23,6 +27,82 @@ $Id$
 * Added UDP multihome support.
 * Merged with 2.0.1_rc5.
 	
+2005.08.25 -- Version 2.0.2
+
+* No change from 2.0.2-rc1.
+
+2005.08.24 -- Version 2.0.2-rc1
+
+* Fixed regression bug in Win32 installer, introduced in 2.0.1,
+  which incorrectly set OpenVPN service to autostart.
+* Don't package source code zip file in Windows installer
+  in order to reduce the size of the installer.  The source
+  zip file can always be downloaded separately if needed.
+* Fixed bug in route.c in FreeBSD, Darwin, OpenBSD and NetBSD
+  version of get_default_gateway.  Allocated socket for route
+  manipulation is never freed so number of mbufs continuously
+  grow and exhaust system resources after a while (Jaroslav Klaus).
+* Fixed bug where "--proto tcp-server --mode p2p --management
+  host port" would cause the management port to not respond until
+  the OpenVPN peer connects.
+* Modified pkitool script to be /bin/sh compatible (Johnny Lam).
+
+2005.08.16 -- Version 2.0.1
+	
+* Security Fix -- DoS attack against server when run with "verb 0" and
+  without "tls-auth".  If a client connection to the server fails
+  certificate verification, the OpenSSL error queue is not properly
+  flushed, which can result in another unrelated client instance on the
+  server seeing the error and responding to it, resulting in disconnection
+  of the unrelated client (CAN-2005-2531).
+* Security Fix -- DoS attack against server by authenticated client.
+  This bug presents a potential DoS attack vector against the server
+  which can only be initiated by a connected and authenticated client.
+  If the client sends a packet which fails to decrypt on the server,
+  the OpenSSL error queue is not properly flushed, which can result in
+  another unrelated client instance on the server seeing the error and
+  responding to it, resulting in disconnection of the unrelated client
+  (CAN-2005-2532).
+* Security Fix -- DoS attack against server by authenticated client.
+  A malicious client in "dev tap" ethernet bridging mode could
+  theoretically flood the server with packets appearing to come from
+  hundreds of thousands of different MAC addresses, causing the OpenVPN
+  process to deplete system virtual memory as it expands its internal
+  routing table.  A --max-routes-per-client directive has been added
+  (default=256) to limit the maximum number of routes in OpenVPN's
+  internal routing table which can be associated with a given client
+  (CAN-2005-2533).
+* Security Fix -- DoS attack against server by authenticated client.
+  If two or more client machines try to connect to the server at the
+  same time via TCP, using the same client certificate, and when
+  --duplicate-cn is not enabled on the server, a race condition can
+  crash the server with "Assertion failed at mtcp.c:411"
+  (CAN-2005-2534).
+* Fixed server bug where under certain circumstances, the client instance
+  object deletion function would try to delete iroutes which had never been
+  added in the first place, triggering "Assertion failed at mroute.c:349".
+* Added --auth-retry option to prevent auth errors from being fatal
+  on the client side, and to permit username/password requeries in case
+  of error.  Also controllable via new "auth-retry" management interface
+  command.  See man page for more info.
+* Added easy-rsa 2.0 scripts to the tarball in easy-rsa/2.0
+* Fixed bug in openvpn.spec where rpmbuild --define 'without_pam 1'
+  would fail to build.
+* Implement "make check" to perform loopback tests (Matthias Andree).
+
+2005.07.21 -- Version 2.0.1-rc7
+
+* Support LZO 2.01 which renamed its library to lzo2 (Matthias Andree).
+* Include linux/types.h before checking for linux/errqueue.h (Matthias
+  Andree).
+
+2005.07.15 -- Version 2.0.1-rc6
+
+* Commented out "user nobody" and "group nobody" in sample
+  client/server config files.
+* Allow '@' character to be used in --client-config-dir
+  file names.
+
 2005.07.04 -- Version 2.0.1-rc5
 
 * Windows version will log a for-further-info URL when
@@ -39,7 +119,7 @@ $Id$
 
 2005.06.15 -- Version 2.0.1-rc4
 
-* Support LZO 2.0, including changes to configure script to
+* Support LZO 2.00, including changes to configure script to
   autodetect LZO version.
 
 2005.06.12 -- Version 2.0.1-rc3

@@ -318,3 +318,24 @@
    fun:system
    fun:system
 }
+
+{
+   test52
+   Memcheck:Value4
+   fun:DES_set_key_unchecked
+}
+
+{
+   test53
+   Memcheck:Value4
+   fun:DES_encrypt2
+}
+
+{
+   test54
+   Memcheck:Leak
+   fun:malloc
+   fun:_IO_getdelim
+   fun:getline
+   fun:getpass
+}

@@ -656,7 +656,7 @@ socket_listen_accept (socket_descriptor_t sd,
 
       FD_ZERO (&reads);
       FD_SET (sd, &reads);
-      tv.tv_sec = 5;
+      tv.tv_sec = 0;
       tv.tv_usec = 0;
 
       status = select (sd + 1, &reads, NULL, NULL, &tv);
@@ -672,7 +672,10 @@ socket_listen_accept (socket_descriptor_t sd,
 	msg (D_LINK_ERRORS | M_ERRNO_SOCK, "TCP: select() failed");
 
       if (status <= 0)
-	continue;
+	{
+	  openvpn_sleep (1);
+	  continue;
+	}
 
       new_sd = socket_do_accept (sd, act, nowait);
 
@@ -821,7 +824,7 @@ case AF_INET:
       sock->info.lsa->local.addr.in.sin_port = htons (sock->local_port);
       addrlen=sizeof(struct sockaddr_in);
       break;
-#ifdef USE_PF_INET6
+#if defined(USE_PF_INET6) && !PEDANTIC
 case AF_INET6:
 {
       struct addrinfo hints , *ai;
@@ -960,7 +963,7 @@ case AF_INET:
 
 	  sock->info.lsa->remote.addr.in.sin_port = htons (sock->remote_port);
 	  break;
-#ifdef USE_PF_INET6
+#if defined(USE_PF_INET6) && !PEDANTIC
 case AF_INET6:
 {
 	  struct addrinfo hints , *ai;
@@ -1462,9 +1465,9 @@ link_socket_connection_initiated (const struct buffer *buf,
   struct gc_arena gc = gc_new ();
   
   /* acquire script mutex */
-  //mutex_lock_static (L_SCRIPT);
+  /*mutex_lock_static (L_SCRIPT);*/
 
-  //addr_copy(&info->lsa->actual.addr.sa, addr); /* Note: skip this line for --force-dest */
+  /*addr_copy(&info->lsa->actual.addr.sa, addr);*/ /* Note: skip this line for --force-dest */
   info->lsa->actual = *act; /* Note: skip this line for --force-dest */
   setenv_trusted (es, info);
   info->connection_established = true;
@@ -2024,7 +2027,7 @@ addr_guess_family(int proto, const char *name)
     return AF_UNIX;
   }
 #endif
-#ifdef USE_PF_INET6
+#if defined(USE_PF_INET6) && !PEDANTIC
   else {
     sa_family_t ret;
     struct addrinfo hints , *ai;

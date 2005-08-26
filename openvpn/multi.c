@@ -43,7 +43,7 @@
 #include "forward-inline.h"
 #include "fastlook-inline.h"
 
-//#define MULTI_DEBUG_EVENT_LOOP
+/*#define MULTI_DEBUG_EVENT_LOOP*/
 
 /*
  * Flags for multi_get_instance_by_virtual_addr
@@ -383,7 +383,7 @@ multi_init (struct multi_context *m, struct context *t, bool tcp_mode)
   mroute_extract_in_addr_t (&m->local, t->c1.tuntap->local);
 
   /*
-   * Limit total number of clients
+   * Per-client limits
    */
   m->max_clients = t->options.max_clients;
 
@@ -729,7 +729,7 @@ multi_print_status (struct multi_context *m, struct status_output *so, const int
 
       status_reset (so);
 
-      if (version == 1) // WAS: m->status_file_version
+      if (version == 1) /* WAS: m->status_file_version */
 	{
 	  /*
 	   * Status file version 1
@@ -921,6 +921,7 @@ multi_learn_addr (struct multi_context *m,
       if ((!owner || owner != mi)
 	  && mroute_learnable_address (addr)
 	  && !mroute_addr_equal (addr, &m->local)
+	  && route_quota_test (m, mi)
 	  && learn_address_script (m, mi, oldroute ? "update" : "add", addr, flags))
 	{
 	  struct gc_arena gc = gc_new ();
@@ -946,6 +947,7 @@ multi_learn_addr (struct multi_context *m,
 
 	  /* each route that points to a client instance increments the instance reference count */
 	  multi_instance_inc_refcount (mi);
+	  route_quota_inc (mi);
 
 	  if (oldroute) /* route already exists? */
 	    {
@@ -1354,13 +1356,13 @@ multi_client_connect_post (struct multi_context *m,
 static void
 multi_connection_established (struct multi_context *m, struct multi_instance *mi)
 {
-  //msg (M_INFO, "*************** MULTI: multi_connection_established ENTER"); // JYFIXME
+  /*msg (M_INFO, "*************** MULTI: multi_connection_established ENTER"); */
 
   if (tls_authenticated (mi->context.c2.tls_multi))
     {
       struct gc_arena gc = gc_new ();
       unsigned int option_types_found = 0;
-      const unsigned int option_permissions_mask = OPT_P_PUSH|OPT_P_INSTANCE|OPT_P_TIMER|OPT_P_CONFIG|OPT_P_ECHO|OPT_P_GROUP;
+      const unsigned int option_permissions_mask = OPT_P_PUSH|OPT_P_INSTANCE|OPT_P_INHERIT|OPT_P_TIMER|OPT_P_CONFIG|OPT_P_ECHO|OPT_P_GROUP;
       int cc_succeeded = true; /* client connect script status */
       int cc_succeeded_count = 0;
 
@@ -1615,7 +1617,7 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
    */
   mi->context.c2.push_reply_deferred = false;
 
-  //msg (M_INFO, "*************** MULTI: multi_connection_established EXIT"); // JYFIXME
+  /*msg (M_INFO, "*************** MULTI: multi_connection_established EXIT"); */
 }
 
 /*
@@ -2190,6 +2192,20 @@ multi_process_drop_outgoing_tun (struct multi_context *m, const unsigned int mpp
 
   multi_process_post (m, mi, mpp_flags);
   clear_prefix ();
+}
+
+/*
+ * Per-client route quota management
+ */
+
+void
+route_quota_exceeded (const struct multi_context *m, const struct multi_instance *mi)
+{
+  struct gc_arena gc = gc_new ();
+  msg (D_ROUTE_QUOTA, "MULTI ROUTE: route quota (%d) exceeded for %s (see --max-routes-per-client option)",
+	mi->context.options.max_routes_per_client,
+	multi_instance_string (mi, false, &gc));
+  gc_free (&gc);
 }
 
 #ifdef ENABLE_DEBUG

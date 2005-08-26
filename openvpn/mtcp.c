@@ -218,6 +218,7 @@ multi_tcp_dereference_instance (struct multi_tcp *mtcp, struct multi_instance *m
   struct link_socket *ls = mi->context.c2.link_socket;
   if (ls && mi->socket_set_called)
     event_del (mtcp->es, socket_event_handle (ls));
+  mtcp->n_esr = 0;
 }
 
 static inline void
@@ -679,7 +680,7 @@ tunnel_server_tcp_event_loop (void *arg)
     {
       perf_push (PERF_EVENT_LOOP);
 
-#if 0 // JYFIXME -- pending handling at top of event loop
+#if 0 /* JYFIXME -- pending handling at top of event loop */
       if (m->pending)
 	{
 	  msg (M_INFO, "****** kill pending");

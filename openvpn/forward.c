@@ -544,7 +544,7 @@ read_incoming_link (struct context *c, struct openvpn_sockaddr *from)
   c->c2.buf = c->c2.buffers->read_link_buf;
 
 #if 0
-  ASSERT (buf_init (&c->c2.buf, FRAME_HEADROOM_ADJ (&c->c2.frame, FRAME_HEADROOM_MARKER_READ_LINK))); // precalculated in do_init_buffers
+  ASSERT (buf_init (&c->c2.buf, FRAME_HEADROOM_ADJ (&c->c2.frame, FRAME_HEADROOM_MARKER_READ_LINK))); /* precalculated in do_init_buffers */
 #endif
 
   verify_align (&c->c2.buf);
@@ -646,7 +646,8 @@ process_incoming_link (struct context *c, struct openvpn_sockaddr *from)
 	   * will load crypto_options with the correct encryption key
 	   * and return false.
 	   */
-	  //tls_mutex_lock (c->c2.tls_multi);
+
+	  /*tls_mutex_lock (c->c2.tls_multi);*/
 	  if (tls_pre_decrypt (c->c2.tls_multi, from, &c->c2.buf, &c->c2.crypto_options))
 	    {
 	      interval_action (&c->c2.tmp_int);
@@ -672,7 +673,7 @@ process_incoming_link (struct context *c, struct openvpn_sockaddr *from)
 #ifdef USE_SSL
       if (c->c2.tls_multi)
 	{
-	  //tls_mutex_unlock (c->c2.tls_multi);
+	  /*tls_mutex_unlock (c->c2.tls_multi);*/
 	}
 #endif
       
@@ -1181,7 +1182,7 @@ encrypt_sign (struct context *c, bool comp_frag)
    */
   if (c->c2.tls_multi)
     {
-      //tls_mutex_lock (c->c2.tls_multi);
+      /*tls_mutex_lock (c->c2.tls_multi);*/
       tls_pre_encrypt (c->c2.tls_multi, &c->c2.buf, &c->c2.crypto_options);
     }
 #endif
@@ -1209,7 +1210,7 @@ encrypt_sign (struct context *c, bool comp_frag)
   if (c->c2.tls_multi)
     {
       tls_post_encrypt (c->c2.tls_multi, &c->c2.buf);
-      //tls_mutex_unlock (c->c2.tls_multi);
+      /*tls_mutex_unlock (c->c2.tls_multi);*/
     }
 #endif
 #endif

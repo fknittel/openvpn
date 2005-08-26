@@ -800,7 +800,7 @@ link_socket_get_outgoing_addr (struct buffer *buf,
       struct link_socket_addr *lsa = info->lsa;
       if (link_addr_defined (&lsa->actual))
 	{
-	  //addr_copy(addr, &lsa->actual.addr);
+	  /*addr_copy(addr, &lsa->actual.addr);*/
 	  *act = &lsa->actual;
 	}
       else

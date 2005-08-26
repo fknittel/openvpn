@@ -280,6 +280,25 @@
 #endif
 
 /*
+ * Pedantic mode is meant to accomplish lint-style program checking,
+ * not to build a working executable.
+ */
+#ifdef __STRICT_ANSI__
+# define PEDANTIC 1
+# undef HAVE_CPP_VARARG_MACRO_GCC
+# undef HAVE_CPP_VARARG_MACRO_ISO
+# undef EMPTY_ARRAY_SIZE
+# define EMPTY_ARRAY_SIZE 1
+# define NI_NUMERICHOST 0
+# define AI_NUMERICHOST 0
+# define AI_PASSIVE 0
+# undef inline
+# define inline
+#else
+# define PEDANTIC 0
+#endif
+
+/*
  * Do we have the capability to support the --passtos option?
  */
 #if defined(IPPROTO_IP) && defined(IP_TOS) && defined(HAVE_SETSOCKOPT)

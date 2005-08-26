@@ -212,6 +212,7 @@ openvpn_encrypt (struct buffer *buf, struct buffer work,
   return;
 
  err:
+  ERR_clear_error ();
   buf->len = 0;
   gc_free (&gc);
   return;
@@ -384,6 +385,7 @@ openvpn_decrypt (struct buffer *buf, struct buffer work,
   return true;
 
  error_exit:
+  ERR_clear_error ();
   buf->len = 0;
   gc_free (&gc);
   return false;
@@ -659,20 +661,24 @@ check_key_DES (struct key *key, const struct key_type *kt, int ndc)
       if (!dc)
 	{
 	  msg (D_CRYPT_ERRORS, "CRYPTO INFO: check_key_DES: insufficient key material");
-	  return false;
+	  goto err;
 	}
       if (DES_is_weak_key(dc))
 	{
 	  msg (D_CRYPT_ERRORS, "CRYPTO INFO: check_key_DES: weak key detected");
-	  return false;
+	  goto err;
 	}
       if (!DES_check_key_parity (dc))
 	{
 	  msg (D_CRYPT_ERRORS, "CRYPTO INFO: check_key_DES: bad parity detected");
-	  return false;
+	  goto err;
 	}
     }
   return true;
+
+ err:
+  ERR_clear_error ();
+  return false;
 }
 
 static void
@@ -688,6 +694,7 @@ fixup_key_DES (struct key *key, const struct key_type *kt, int ndc)
       if (!dc)
 	{
 	  msg (D_CRYPT_ERRORS, "CRYPTO INFO: fixup_key_DES: insufficient key material");
+	  ERR_clear_error ();
 	  return;
 	}
       DES_set_odd_parity (dc);

@@ -911,7 +911,7 @@ setenv_str_ex (struct env_set *es,
     {
 #if defined(WIN32)
       {
-	//msg (M_INFO, "SetEnvironmentVariable '%s' '%s'", name_tmp, val_tmp ? val_tmp : "NULL");
+	/*msg (M_INFO, "SetEnvironmentVariable '%s' '%s'", name_tmp, val_tmp ? val_tmp : "NULL");*/
 	if (!SetEnvironmentVariable (name_tmp, val_tmp))
 	  msg (M_WARN | M_ERRNO, "SetEnvironmentVariable failed, name='%s', value='%s'",
 	       name_tmp,
@@ -924,7 +924,7 @@ setenv_str_ex (struct env_set *es,
 
 	mutex_lock_static (L_PUTENV);
 	status = putenv (str);
-	//msg (M_INFO, "PUTENV '%s'", str);
+	/*msg (M_INFO, "PUTENV '%s'", str);*/
 	if (!status)
 	  manage_env (str);
 	mutex_unlock_static (L_PUTENV);
@@ -1038,7 +1038,7 @@ create_temp_filename (const char *directory, struct gc_arena *gc)
 const char *
 gen_path (const char *directory, const char *filename, struct gc_arena *gc)
 {
-  const char *safe_filename = string_mod_const (filename, CC_ALNUM|CC_UNDERBAR|CC_DASH|CC_DOT, 0, '_', gc);
+  const char *safe_filename = string_mod_const (filename, CC_ALNUM|CC_UNDERBAR|CC_DASH|CC_DOT|CC_AT, 0, '_', gc);
 
   if (safe_filename
       && strcmp (safe_filename, ".")
@@ -1273,12 +1273,13 @@ get_user_pass (struct user_pass *up,
 }
 
 void
-purge_user_pass (struct user_pass *up)
+purge_user_pass (struct user_pass *up, const bool force)
 {
-  if (up->nocache)
+  const bool nocache = up->nocache;
+  if (nocache || force)
     {
       CLEAR (*up);
-      up->nocache = true;
+      up->nocache = nocache;
     }
 }
 

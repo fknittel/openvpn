@@ -369,24 +369,24 @@ schedule_init (void)
   struct schedule *s;
 
   ALLOC_OBJ_CLEAR (s, struct schedule);
-  //mutex_init (&s->mutex);
+  /*mutex_init (&s->mutex);*/
   return s;
 }
 
 void
 schedule_free (struct schedule *s)
 {
-  //mutex_destroy (&s->mutex);
+  /*mutex_destroy (&s->mutex);*/
   free (s);
 }
 
 void
 schedule_remove_entry (struct schedule *s, struct schedule_entry *e)
 {
-  //mutex_lock (&s->mutex);
+  /*mutex_lock (&s->mutex);*/
   s->earliest_wakeup = NULL; /* invalidate cache */
   schedule_remove_node (s, e);
-  //mutex_unlock (&s->mutex);
+  /*mutex_unlock (&s->mutex);*/
 }
 
 /*
@@ -611,14 +611,14 @@ schedule_test (void)
     {
       ALLOC_OBJ_CLEAR (array[i], struct schedule_entry);
       tv_randomize (&array[i]->tv);
-      //schedule_print (s);
-      //schedule_verify (s);
+      /*schedule_print (s);*/
+      /*schedule_verify (s);*/
       schedule_add_modify (s, array[i]);
     }
 
   schedule_randomize_array (array, n);
 
-  //schedule_print (s);
+  /*schedule_print (s);*/
   schedule_verify (s);
 
   for (j = 1; j <= n_mod; ++j)
@@ -628,23 +628,23 @@ schedule_test (void)
       for (i = 0; i < n; ++i)
 	{
 	  e = schedule_find_earliest_wakeup (s);
-	  //printf ("BEFORE %s\n", tv_string (&e->tv, &gc));
+	  /*printf ("BEFORE %s\n", tv_string (&e->tv, &gc));*/
 	  tv_randomize (&e->tv);
-	  //printf ("AFTER %s\n", tv_string (&e->tv, &gc));
+	  /*printf ("AFTER %s\n", tv_string (&e->tv, &gc));*/
 	  schedule_add_modify (s, e);
-	  //schedule_verify (s);
-	  //schedule_print (s);
+	  /*schedule_verify (s);*/
+	  /*schedule_print (s);*/
 	}
       schedule_verify (s);
-      //schedule_print (s);
+      /*schedule_print (s);*/
     }
 
-  //printf ("INS=%d\n", z.ins);
+  /*printf ("INS=%d\n", z.ins);*/
 
   while ((e = schedule_find_earliest_wakeup (s)))
     {
       schedule_remove_node (s, e);
-      //schedule_verify (s);
+      /*schedule_verify (s);*/
     }
   schedule_verify (s);
 

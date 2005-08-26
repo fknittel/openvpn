@@ -144,7 +144,7 @@ gremlin_parse_option (const char *parm, const int msglevel)
   char p2[64];
   struct buffer buf;
 
-  buf_set_read (&buf, parm, strlen (parm) + 1);
+  buf_set_read (&buf, (const uint8_t *)parm, strlen (parm) + 1);
   buf_parse (&buf, '/', p1, sizeof (p1));
   buf_parse (&buf, 0, p2, sizeof (p2));
   
