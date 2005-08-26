@@ -41,18 +41,27 @@
 
 #define TO_LINK_DEF(c)  (LINK_OUT(c) || TO_LINK_FRAG(c))
 
-#define IOW_TO_TUN          (1<<0)
-#define IOW_TO_LINK         (1<<1)
-#define IOW_READ_TUN        (1<<2)
-#define IOW_READ_LINK       (1<<3)
-#define IOW_SHAPER          (1<<4)
-#define IOW_CHECK_RESIDUAL  (1<<5)
-#define IOW_FRAG            (1<<6)
-#define IOW_MBUF            (1<<7)
-#define IOW_READ_TUN_FORCE  (1<<8)
-#define IOW_WAIT_SIGNAL     (1<<9)
+/* the 1<<n bits below must be exclusive of ST_RW_MASK */
+
+#define IOW_READ_LINK       ((1<<4) | SOCKET_READ)
+#define IOW_TO_LINK         ((1<<5) | SOCKET_WRITE)
+
+#define IOW_READ_TUN        ((1<<6) | TUN_READ)
+#define IOW_TO_TUN          ((1<<7) | TUN_WRITE)
+
+#define IOW_MBUF            ((1<<8) | SOCKET_WRITE)
+#define IOW_READ_TUN_FORCE  ((1<<9) | TUN_READ)
+
+#define IOW_CHECK_RESIDUAL  (1<<10)
+#define IOW_FRAG            (1<<11)
+#define IOW_SHAPER          (1<<12)
+#define IOW_WAIT_SIGNAL     (1<<13)
+
+#define IOW_FAST_IO         (1<<14)
 
 #define IOW_READ            (IOW_READ_TUN|IOW_READ_LINK)
+
+void p2p_iow_flags_init (struct context *c);
 
 void io_wait_slow (struct context *c, const unsigned int flags);
 
@@ -69,8 +78,8 @@ bool read_incoming_link (struct context *c, struct openvpn_sockaddr *from);
 void process_incoming_link (struct context *c, struct openvpn_sockaddr *from);
 bool read_incoming_tun (struct context *c);
 void process_incoming_tun (struct context *c);
-void process_outgoing_link (struct context *c);
-void process_outgoing_tun (struct context *c);
+bool process_outgoing_link (struct context *c);
+bool process_outgoing_tun (struct context *c);
 
 bool send_control_channel_string (struct context *c, const char *str, int msglevel);
 

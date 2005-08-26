@@ -524,6 +524,9 @@ multi_close_instance (struct multi_context *m,
 
   dmsg (D_MULTI_DEBUG, "MULTI: multi_close_instance called, partial=%d", (int) partial);
 
+  /* slow-path next I/O */
+  ess_hint_reset (&m->top);
+
   /* prevent dangling pointers */
   if (m->pending == mi)
     multi_set_pending (m, NULL);
@@ -1775,8 +1778,6 @@ multi_instance_housekeeping (struct multi_context *m, struct multi_instance *mi)
 bool
 multi_process_post (struct multi_context *m, struct multi_instance *mi, const unsigned int flags)
 {
-  bool ret = true;
-
   if (!IS_SIG (&mi->context) && ((flags & MPP_PRE_SELECT)))
     multi_instance_housekeeping (m, mi);
 
@@ -1785,7 +1786,7 @@ multi_process_post (struct multi_context *m, struct multi_instance *mi, const un
       if (flags & MPP_CLOSE_ON_SIGNAL)
 	{
 	  multi_close_instance_on_signal (m, mi);
-	  ret = false;
+	  return false;
 	}
     }
   else
@@ -1797,12 +1798,12 @@ multi_process_post (struct multi_context *m, struct multi_instance *mi, const un
 #ifdef FAST_IO
   if (flags & MPP_POSTPROCESS_DEFER)
     multi_postprocess_defer_add (m, mi);
-  else
 #endif
-    if ((flags & MPP_RECORD_TOUCH) && m->mpp_touched)
-      *m->mpp_touched = mi;
 
-  return ret;
+  if ((flags & MPP_RECORD_TOUCH) && m->mpp_touched)
+    *m->mpp_touched = mi;
+
+  return true;
 }
 
 /*
@@ -2425,12 +2426,12 @@ multi_postprocess_defer_reset_dowork (struct multi_context *m)
     ;
 }
 
-#ifdef MPPD_DEBUG
+#ifdef FAST_IO_DEBUG
 void
 multi_postprocess_defer_max_exceeded (struct multi_postprocess_defer *mpd)
 {
   mpd->max = mpd->iter;
-  msg (D_MPPD_DEBUG, "I/O POST DEFER MAX: max=%d n=%d", mpd->max, mpd->n);
+  msg (D_FAST_IO_DEBUG, "I/O POST DEFER MAX: max=%d n=%d", mpd->max, mpd->n);
 }
 #endif
 

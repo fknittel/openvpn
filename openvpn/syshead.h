@@ -455,11 +455,10 @@ socket_defined (const socket_descriptor_t sd)
 #endif
 
 /*
- * FAST_IO -- optimize for high data throughput (less efficient when handling lower bandwidth)
+ * FAST_IO -- optimize for high data throughput
  */
-#ifndef WIN32
 #define FAST_IO
-#define MPPD_DEBUG /* JYFIXME */
-#endif
+#define FAST_IO_DEBUG           /* JYFIXME */
+#define SIMULATE_SEND_BLOCKING  /* JYFIXME */
 
 #endif

@@ -525,7 +525,7 @@ read_incoming_link_connection_reset (struct context *c, const int status)
 }
 
 /*
- * Read from UDP/TCP socket.  Return true on EAGAIN.
+ * Read from UDP/TCP socket.  Return true on EAGAIN or signal.
  * Output: c->c2.buf
  */
 bool
@@ -551,8 +551,9 @@ read_incoming_link (struct context *c, struct openvpn_sockaddr *from)
   status = link_socket_read (c->c2.link_socket, &c->c2.buf, MAX_RW_SIZE_LINK (&c->c2.frame), from);
 
 #ifdef FAST_IO
-  if (c->c2.fast_io && errno_eagain (status))
+  if ((c->c2.default_iow_flags & IOW_FAST_IO) && errno_eagain (status))
     {
+      ess_hint_eagain (c, SOCKET_READ);
       perf_pop ();
       return true;
     }
@@ -562,7 +563,7 @@ read_incoming_link (struct context *c, struct openvpn_sockaddr *from)
     {
       read_incoming_link_connection_reset (c, status);
       perf_pop ();
-      return false;
+      return IS_SIG (c);
     }
 
   /* check recvfrom status */
@@ -574,7 +575,7 @@ read_incoming_link (struct context *c, struct openvpn_sockaddr *from)
 #endif
 
   perf_pop ();
-  return false;
+  return IS_SIG (c);
 }
 
 /*
@@ -748,7 +749,7 @@ process_incoming_link (struct context *c, struct openvpn_sockaddr *from)
 }
 
 /*
- * Read from TUN/TAP socket.  Return true on EAGAIN.
+ * Read from TUN/TAP socket.  Return true on EAGAIN or signal.
  * Output: c->c2.buf
  */
 bool
@@ -775,8 +776,9 @@ read_incoming_tun (struct context *c)
 #endif
 
 #ifdef FAST_IO
-  if (c->c2.fast_io && errno_eagain (c->c2.buf.len))
+  if ((c->c2.default_iow_flags & IOW_FAST_IO) && errno_eagain (c->c2.buf.len))
     {
+      ess_hint_eagain (c, TUN_READ);
       perf_pop ();
       return true;
     }
@@ -789,14 +791,14 @@ read_incoming_tun (struct context *c)
       c->sig->signal_text = "tun-stop";
       msg (M_INFO, "TUN/TAP interface has been stopped, exiting");
       perf_pop ();
-      return false;
+      return IS_SIG (c);
     }
 
   /* Check the status return from read() */
   check_status (c->c2.buf.len, "read from TUN/TAP", NULL, c->c1.tuntap);
 
   perf_pop ();
-  return false;
+  return IS_SIG (c);
 }
 
 /*
@@ -896,9 +898,10 @@ process_ipv4_header (struct context *c, unsigned int flags, struct buffer *buf)
 
 /*
  * Input: c->c2.to_link
+ * Return true on EAGAIN or signal.
  */
 
-void
+bool
 process_outgoing_link (struct context *c)
 {
   struct gc_arena gc = gc_new ();
@@ -919,6 +922,8 @@ process_outgoing_link (struct context *c)
       if (!c->options.gremlin || ask_gremlin (c->options.gremlin))
 #endif
 	{
+	  DECLARE_SEND_BLOCKING_TEST (c);
+
 	  /*
 	   * Let the traffic shaper know how many bytes
 	   * we wrote.
@@ -963,7 +968,8 @@ process_outgoing_link (struct context *c)
 #endif
 	    /* Send packet */
 	    verify_align (&c->c2.to_link);
-	    size = link_socket_write (c->c2.link_socket, &c->c2.to_link, to_addr);
+	    if (!simulate_send_blocking)
+	      size = link_socket_write (c->c2.link_socket, &c->c2.to_link, to_addr);
 
 #ifdef ENABLE_SOCKS
 	    /* Undo effect of prepend */
@@ -971,6 +977,18 @@ process_outgoing_link (struct context *c)
 #endif
 	  }
 
+#ifdef FAST_IO
+	  if ((c->c2.default_iow_flags & IOW_FAST_IO) && (errno_eagain (size) || simulate_send_blocking))
+	    {
+#ifdef FAST_IO_DEBUG
+	      msg (D_FAST_IO_DEBUG, "FAST_IO: SOCKET write block on packet size=%d", BLEN (&c->c2.to_link));
+#endif
+	      ess_hint_eagain (c, SOCKET_WRITE);
+	      perf_pop ();
+	      gc_free (&gc);
+	      return true;
+	    }
+#endif
 	  if (size > 0)
 	    {
 	      c->c2.max_send_size_local = max_int (size, c->c2.max_send_size_local);
@@ -978,18 +996,22 @@ process_outgoing_link (struct context *c)
 	    }
 	}
 
-      /* Check return status */
-      check_status (size, "write", c->c2.link_socket, NULL);
-
-      if (size > 0)
 	{
-	  /* Did we write a different size packet than we intended? */
-	  if (size != BLEN (&c->c2.to_link))
-	    msg (D_LINK_ERRORS,
-		 "TCP/UDP packet was truncated/expanded on write to %s (tried=%d,actual=%d)",
-		 print_link_sockaddr (c->c2.to_link_addr, &gc),
-		 BLEN (&c->c2.to_link),
-		 size);
+	  /* Check return status */
+	  check_status (size, "write", c->c2.link_socket, NULL);
+
+	  if (size > 0)
+	    {
+	      /* Did we write a different size packet than we intended? */
+	      if (size != BLEN (&c->c2.to_link))
+		msg (D_LINK_ERRORS,
+		     "TCP/UDP packet was truncated/expanded on write to %s (tried=%d,actual=%d)",
+		     print_link_sockaddr (c->c2.to_link_addr, &gc),
+		     BLEN (&c->c2.to_link),
+		     size);
+	    }
+
+	  buf_reset (&c->c2.to_link);
 	}
     }
   else
@@ -999,19 +1021,21 @@ process_outgoing_link (struct context *c)
 	     print_link_sockaddr (c->c2.to_link_addr, &gc),
 	     c->c2.to_link.len,
 	     EXPANDED_SIZE (&c->c2.frame));
-    }
 
-  buf_reset (&c->c2.to_link);
+      buf_reset (&c->c2.to_link);
+    }
 
   perf_pop ();
   gc_free (&gc);
+  return IS_SIG (c);
 }
 
 /*
  * Input: c->c2.to_tun
+ * Return true on EAGAIN or signal.
  */
 
-void
+bool
 process_outgoing_tun (struct context *c)
 {
   struct gc_arena gc = gc_new ();
@@ -1032,10 +1056,12 @@ process_outgoing_tun (struct context *c)
 
   if (c->c2.to_tun.len <= MAX_RW_SIZE_TUN (&c->c2.frame))
     {
+      DECLARE_SEND_BLOCKING_TEST (c);
+
       /*
        * Write to TUN/TAP device.
        */
-      int size;
+      int size = 0;
 
 #ifdef LOG_RW
       if (c->c2.log_rw)
@@ -1046,27 +1072,54 @@ process_outgoing_tun (struct context *c)
 	   format_hex (BPTR (&c->c2.to_tun), BLEN (&c->c2.to_tun), 80, &gc),
 	   MD5SUM (BPTR (&c->c2.to_tun), BLEN (&c->c2.to_tun), &gc));
 
-#ifdef TUN_PASS_BUFFER
-      size = write_tun_buffered (c->c1.tuntap, &c->c2.to_tun);
-#else
-      verify_align(&c->c2.to_tun);
-      size = write_tun (c->c1.tuntap, BPTR (&c->c2.to_tun), BLEN (&c->c2.to_tun));
-#endif
-
-      if (size > 0)
-	c->c2.tun_write_bytes += size;
-      check_status (size, "write to TUN/TAP", NULL, c->c1.tuntap);
-
-      /* check written packet size */
-      if (size > 0)
+      if (!simulate_send_blocking)
 	{
-	  /* Did we write a different size packet than we intended? */
-	  if (size != BLEN (&c->c2.to_tun))
-	    msg (D_LINK_ERRORS,
-		 "TUN/TAP packet was destructively fragmented on write to %s (tried=%d,actual=%d)",
-		 c->c1.tuntap->actual_name,
-		 BLEN (&c->c2.to_tun),
-		 size);
+#ifdef TUN_PASS_BUFFER
+	  size = write_tun_buffered (c->c1.tuntap, &c->c2.to_tun);
+#else
+	  verify_align(&c->c2.to_tun);
+	  size = write_tun (c->c1.tuntap, BPTR (&c->c2.to_tun), BLEN (&c->c2.to_tun));
+#endif
+	}
+
+#ifdef FAST_IO
+      if ((c->c2.default_iow_flags & IOW_FAST_IO) && (errno_eagain (size) || simulate_send_blocking))
+	{
+#ifdef FAST_IO_DEBUG
+	  msg (D_FAST_IO_DEBUG, "FAST_IO: TUN write block on packet size=%d", BLEN (&c->c2.to_tun));
+#endif
+	  ess_hint_eagain (c, TUN_WRITE);
+	  perf_pop ();
+	  gc_free (&gc);
+	  return true;
+	}
+      else
+#endif
+	{
+	  check_status (size, "write to TUN/TAP", NULL, c->c1.tuntap);
+
+	  /* check written packet size */
+	  if (size > 0)
+	    {
+	      c->c2.tun_write_bytes += size;
+
+	      /* Did we write a different size packet than we intended? */
+	      if (size != BLEN (&c->c2.to_tun))
+		msg (D_LINK_ERRORS,
+		     "TUN/TAP packet was destructively fragmented on write to %s (tried=%d,actual=%d)",
+		     c->c1.tuntap->actual_name,
+		     BLEN (&c->c2.to_tun),
+		     size);
+	    }
+
+	  /*
+	   * Putting the --inactive timeout reset here, ensures that we will timeout
+	   * if the remote goes away, even if we are trying to send data to the
+	   * remote and failing.
+	   */
+	  register_activity (c);
+      
+	  buf_reset (&c->c2.to_tun); 
 	}
     }
   else
@@ -1078,19 +1131,13 @@ process_outgoing_tun (struct context *c)
       msg (D_LINK_ERRORS, "tun packet too large on write (tried=%d,max=%d)",
 	   c->c2.to_tun.len,
 	   MAX_RW_SIZE_TUN (&c->c2.frame));
+      
+      buf_reset (&c->c2.to_tun); 
     }
-
-  /*
-   * Putting the --inactive timeout reset here, ensures that we will timeout
-   * if the remote goes away, even if we are trying to send data to the
-   * remote and failing.
-   */
-  register_activity (c);
-
-  buf_reset (&c->c2.to_tun);
 
   perf_pop ();
   gc_free (&gc);
+  return IS_SIG (c);
 }
 
 /*
@@ -1232,6 +1279,32 @@ pre_select (struct context *c)
 }
 
 /*
+ * Initialize default IOW flags based on options.
+ */
+void
+p2p_iow_flags_init (struct context *c)
+{
+  unsigned int flags = IOW_WAIT_SIGNAL;
+
+#ifdef HAVE_GETTIMEOFDAY
+  if (c->options.shaper)
+    flags |= IOW_SHAPER;
+#endif
+  if (link_socket_proto_stream_oriented (c->options.proto))
+    flags |= IOW_CHECK_RESIDUAL;
+#ifdef ENABLE_FRAGMENT
+  if (c->options.fragment)
+    flags |= IOW_FRAG;
+#endif
+#ifdef FAST_IO
+  if ((flags & (IOW_SHAPER|IOW_FRAG)) == 0)
+    flags |= IOW_FAST_IO;
+#endif
+
+  c->c2.default_iow_flags = flags;
+}
+
+/*
  * Wait for I/O events.  Used for both TCP & UDP sockets
  * in point-to-point mode and for UDP sockets in
  * point-to-multipoint mode.
@@ -1244,13 +1317,18 @@ io_wait_slow (struct context *c, const unsigned int flags)
   unsigned int tuntap = 0;
   struct event_set_return esr[4];
 
-  /* These shifts all depend on EVENT_READ and EVENT_WRITE (see openvpn.h) */
-  static const int socket_shift = 0;      /* depends on SOCKET_READ and SOCKET_WRITE */
-  static const int tun_shift = 2;         /* depends on TUN_READ and TUN_WRITE */
-  static const int err_shift = 4;         /* depends on ES_ERROR */
+/* These shifts all depend on EVENT_READ and EVENT_WRITE (see openvpn.h) */
+# define SOCKET_SHIFT     0  /* depends on SOCKET_READ and SOCKET_WRITE */
+# define TUN_SHIFT        2  /* depends on TUN_READ and TUN_WRITE */
+# define ERR_SHIFT        4  /* depends on ES_ERROR */
+# define MANAGEMENT_SHIFT 6  /* depends on MANAGEMENT_READ and MANAGEMENT_WRITE */
+
+  static const int socket_shift = SOCKET_SHIFT;
+  static const int tun_shift    = TUN_SHIFT;
+  static const int err_shift    = ERR_SHIFT;
 
 #ifdef ENABLE_MANAGEMENT
-  static const int management_shift = 6;  /* depends on MANAGEMENT_READ and MANAGEMENT_WRITE */
+  static const int management_shift = MANAGEMENT_SHIFT;
 #endif
 
   /*
@@ -1406,12 +1484,11 @@ io_wait_slow (struct context *c, const unsigned int flags)
 
 #ifdef FAST_IO
   /* if fast i/o, retry read until EAGAIN */
-  if (c->c2.fast_io)
+  if (flags & IOW_FAST_IO)
     {
-      if (c->c2.event_set_status & (SOCKET_READ|TUN_READ))
-	c->c2.event_set_status_hint = (c->c2.event_set_status & (SOCKET_READ|TUN_READ));
-      else
-	c->c2.event_set_status_hint = 0;
+      const unsigned int event_mask = (tuntap << TUN_SHIFT) | (socket << SOCKET_SHIFT);
+      c->c2.event_set_status_hint &= ~event_mask;
+      c->c2.event_set_status_hint |= (c->c2.event_set_status & event_mask);
     }
 #endif
 
@@ -1421,14 +1498,14 @@ io_wait_slow (struct context *c, const unsigned int flags)
 static inline void
 do_socket_read (struct context *c)
 {
-  if (!read_incoming_link_eagain (c))
+  if (!read_incoming_link (c, &c->c2.from_addr))
     process_incoming_link (c, &c->c2.from_addr);
 }
 
 static inline void
 do_tun_read (struct context *c)
 {
-  if (!read_incoming_tun_eagain (c))
+  if (!read_incoming_tun (c))
     process_incoming_tun (c);
 }
 

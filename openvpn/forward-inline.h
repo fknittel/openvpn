@@ -234,26 +234,18 @@ register_activity (struct context *c)
  * Return the io_wait() flags appropriate for
  * a point-to-point tunnel.
  */
+
 static inline unsigned int
 p2p_iow_flags (const struct context *c)
 {
-  unsigned int flags = (IOW_SHAPER|IOW_CHECK_RESIDUAL|IOW_FRAG|IOW_READ|IOW_WAIT_SIGNAL);
+  unsigned int flags = c->c2.default_iow_flags;
   if (c->c2.to_link.len > 0)
     flags |= IOW_TO_LINK;
   if (c->c2.to_tun.len > 0)
     flags |= IOW_TO_TUN;
+  if ((flags & (IOW_TO_LINK|IOW_TO_TUN)) == 0)
+    flags |= IOW_READ;
   return flags;
-}
-
-static inline unsigned int
-iow_to_ess (const unsigned int flags)
-{
-  unsigned int ess = 0;
-  if (flags & IOW_TO_TUN)
-    ess |= TUN_WRITE;
-  if (flags & (IOW_TO_LINK|IOW_MBUF))
-    ess |= SOCKET_WRITE;
-  return ess;
 }
 
 static inline unsigned int
@@ -286,7 +278,7 @@ static inline bool
 p2p_idle (const struct context *c)
 {
 #ifdef FAST_IO
-  return !c->c2.fast_io || (!ANY_OUT(c) && !ess_hint (c));
+  return !(c->c2.default_iow_flags & IOW_FAST_IO) || (!ANY_OUT(c) && !ess_hint (c));
 #else
   return true;
 #endif
@@ -296,61 +288,21 @@ static inline bool
 is_io_wait_fast_path (struct context *c, const unsigned int flags)
 {
 #ifdef FAST_IO
-  if (c->c2.fast_io)
+  if (flags & IOW_FAST_IO)
     {
-      if (flags & (IOW_TO_TUN|IOW_TO_LINK|IOW_MBUF))
-	{
-	  /* fast path -- only for TUN/TAP/UDP writes */
-	  c->c2.event_set_status = iow_to_ess (flags);
-	  return true;
-	}
-      else if (c->c2.event_set_status_hint)
-	{
-	  /* fast path -- guess status based on previous event */
-	  c->c2.event_set_status = c->c2.event_set_status_hint;
-	  return true;
-	}
+      if ((flags & IOW_CHECK_RESIDUAL) && socket_read_residual (c->c2.link_socket))
+	c->c2.event_set_status_hint |= SOCKET_READ;
+      {
+	const unsigned int ess = flags & c->c2.event_set_status_hint & ST_RW_MASK;
+	if (ess)
+	  {
+	    c->c2.event_set_status = ess;
+	    return true;
+	  }
+      }
     }
 #endif
   return false;
-}
-
-/*
- * Like read_incoming_link/read_incoming_tun
- * but save eagain/not-eagain status
- * in ess_hint.
- */
-
-static inline bool
-read_incoming_link_eagain (struct context *c)
-{
-  if (read_incoming_link (c, &c->c2.from_addr))
-    {
-#ifdef FAST_IO
-      ess_hint_eagain (c, SOCKET_READ);
-#else
-      ASSERT (0);
-#endif
-      return true;
-    }
-  else
-    return IS_SIG (c);
-}
-
-static inline bool
-read_incoming_tun_eagain (struct context *c)
-{
-  if (read_incoming_tun (c))
-    {
-#ifdef FAST_IO
-      ess_hint_eagain (c, TUN_READ);
-#else
-      ASSERT (0);
-#endif
-      return true;
-    }
-  else
-    return IS_SIG (c);
 }
 
 /*
@@ -368,5 +320,11 @@ io_wait (struct context *c, const unsigned int flags)
 }
 
 #define CONNECTION_ESTABLISHED(c) (get_link_socket_info(c)->connection_established)
+
+#if defined(SIMULATE_SEND_BLOCKING) && defined(FAST_IO)
+#define DECLARE_SEND_BLOCKING_TEST(c) const bool simulate_send_blocking = (((c)->c2.default_iow_flags & IOW_FAST_IO) && ((get_random () % 7) == 0))
+#else
+#define DECLARE_SEND_BLOCKING_TEST(c) const bool simulate_send_blocking = false
+#endif
 
 #endif /* EVENT_INLINE_H */

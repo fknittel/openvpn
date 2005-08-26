@@ -529,6 +529,12 @@ link_socket_proto_connection_oriented (int proto)
 }
 
 static inline bool
+link_socket_proto_stream_oriented (int proto)
+{
+  return proto_is_tcp(proto);
+}
+
+static inline bool
 link_socket_connection_oriented (const struct link_socket *sock)
 {
   if (sock)

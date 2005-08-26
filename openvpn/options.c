@@ -193,9 +193,6 @@ static const char usage_message[] =
 #if ENABLE_IP_PKTINFO
   "--multihome     : Configure a multi-homed UDP server.\n"
 #endif
-#ifdef FAST_IO
-  "--fast-io       : (experimental) Optimize event loop for high throughput.\n"
-#endif
 #if 0 // ALIGN_OPTIMIZE
   "--align-optimize : (experimental) Modify protocol ordering to improve\n"
   "                   alignment efficiency.  Use on both ends of connection.\n"
@@ -1101,10 +1098,6 @@ show_settings (const struct options *o)
   SHOW_STR (socks_proxy_server);
   SHOW_INT (socks_proxy_port);
   SHOW_BOOL (socks_proxy_retry);
-#endif
-
-#ifdef FAST_IO
-  SHOW_BOOL (fast_io);
 #endif
 
 #if 0 // ALIGN_OPTIMIZE
@@ -3328,13 +3321,10 @@ add_option (struct options *options,
       VERIFY_PERMISSION (OPT_P_GENERAL);
       options->bind_local = false;
     }
-#ifdef FAST_IO
   else if (streq (p[0], "fast-io"))
     {
       VERIFY_PERMISSION (OPT_P_GENERAL);
-      options->fast_io = true;
     }
-#endif
 #if 0 // ALIGN_OPTIMIZE
   else if (streq (p[0], "align-optimize"))
     {

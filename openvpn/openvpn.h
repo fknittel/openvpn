@@ -203,11 +203,16 @@ struct context_2
   int event_set_max;
   bool event_set_owned;
 
-  /* event flags returned by io_wait */
+  /* basic i/o event flags returned by io_wait */
 # define SOCKET_READ        (1<<0)
 # define SOCKET_WRITE       (1<<1)
 # define TUN_READ           (1<<2)
 # define TUN_WRITE          (1<<3)
+
+  /* note that flags interact with IOW_ flags in openvpn.h */
+# define ST_RW_MASK (SOCKET_READ|SOCKET_WRITE|TUN_READ|TUN_WRITE)
+
+  /* extended i/o event flags returned by io_wait */
 # define ES_ERROR           (1<<4)
 # define ES_TIMEOUT         (1<<5)
 # ifdef ENABLE_MANAGEMENT
@@ -220,6 +225,8 @@ struct context_2
 #ifdef FAST_IO
   unsigned int event_set_status_hint;
 #endif
+
+  unsigned int default_iow_flags;
 
   struct link_socket *link_socket;	      /* socket used for TCP/UDP connection to remote */
   bool link_socket_owned;
@@ -406,9 +413,6 @@ struct context_2
 
   /* environmental variables to pass to scripts */
   struct env_set *es;
-
-  /* don't wait for TUN/TAP/UDP to be ready to accept write */
-  bool fast_io;
 
 #if P2MP
 

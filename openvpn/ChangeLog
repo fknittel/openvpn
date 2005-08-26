@@ -3,6 +3,14 @@ Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
 
 $Id$
 
+2005.08.26 -- Version 2.1-alpha4
+
+* Beginning of refactoring of fast-io to cover all modes.
+	
+2005.08.01 -- Version 2.1-alpha3
+
+* --fast-io stable checkpoint
+
 2005.07.31 -- Version 2.1-alpha2
 
 * --fast-io efficiency improvements on UDP/Posix.

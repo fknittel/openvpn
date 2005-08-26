@@ -223,11 +223,6 @@ struct options
   int status_file_version;
   int status_file_update_freq;
 
-#ifdef FAST_IO
-  /* optimize TUN/TAP/UDP read/writes */
-  bool fast_io;
-#endif
-
 #if 0 // ALIGN_OPTIMIZE
   bool align_optimize;
 #endif

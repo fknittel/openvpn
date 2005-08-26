@@ -2065,40 +2065,6 @@ do_inherit_env (struct context *c, const struct env_set *src)
   env_set_inherit (c->c2.es, src);
 }
 
-/*
- * Fast I/O setup.  Fast I/O is an optimization which only works
- * if all of the following are true:
- *
- * (1) The platform is not Windows
- * (2) --proto udp is enabled
- * (3) --shaper is disabled
- * (4) JYFIXME maybe --fragment should also disable fast-io?
- */
-static void
-do_setup_fast_io (struct context *c)
-{
-#ifdef FAST_IO
-  if (c->options.fast_io)
-    {
-#ifdef WIN32
-      msg (M_INFO, "NOTE: --fast-io is disabled since we are running on Windows");
-#else
-      if (!proto_is_udp(c->options.proto))
-	msg (M_INFO, "NOTE: --fast-io is disabled since we are not using UDP");
-      else
-	{
-	  if (c->options.shaper)
-	    msg (M_INFO, "NOTE: --fast-io is disabled since we are using --shaper");
-	  else
-	    {
-	      c->c2.fast_io = true;
-	    }
-	}
-#endif
-    }
-#endif
-}
-
 static void
 do_signal_on_tls_errors (struct context *c)
 {
@@ -2288,7 +2254,7 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
   /* init garbage collection level */
   gc_init (&c->c2.gc);
 
-  /* signals caught here will abort */
+  /* init signal vars */
   c->sig->signal_received = 0;
   c->sig->signal_text = NULL;
   c->sig->hard = false;
@@ -2335,9 +2301,8 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
   if (c->mode == CM_P2P || c->mode == CM_TOP)
     do_open_plugins (c);
 
-  /* should we enable fast I/O? */
-  if (c->mode == CM_P2P || c->mode == CM_TOP)
-    do_setup_fast_io (c);
+  /* set I/O flags based on options */
+  p2p_iow_flags_init (c);
 
   /* should we throw a signal on TLS errors? */
   do_signal_on_tls_errors (c);

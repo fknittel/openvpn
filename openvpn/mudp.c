@@ -167,14 +167,14 @@ p2mp_iow_flags (const struct multi_context *m)
 static inline void
 do_socket_read (struct multi_context *m, const unsigned int mpp_flags)
 {
-  if (!read_incoming_link_eagain (&m->top))
+  if (!read_incoming_link (&m->top, &m->top.c2.from_addr))
     multi_process_incoming_link (m, NULL, mpp_flags);
 }
 
 static inline void
 do_tun_read (struct multi_context *m, const unsigned int mpp_flags)
 {
-  if (!read_incoming_tun_eagain (&m->top))
+  if (!read_incoming_tun (&m->top))
     multi_process_incoming_tun (m, mpp_flags);
 }
 
@@ -211,7 +211,7 @@ multi_process_io_udp (struct multi_context *m)
    * performing an MPP_PRE_SELECT action on all touched instances.
    */
 #ifdef FAST_IO
-  if (m->top.c2.fast_io)
+  if (m->top.c2.default_iow_flags & IOW_FAST_IO)
     mpp_flags = MPP_POSTPROCESS_DEFER | MPP_CLOSE_ON_SIGNAL;
   else
 #endif
@@ -223,9 +223,13 @@ multi_process_io_udp (struct multi_context *m)
   if (status & (SOCKET_WRITE|TUN_WRITE))
     {
       if (status & SOCKET_WRITE)
-	multi_process_outgoing_link (m, mpp_flags);
+	{
+	  multi_process_outgoing_link (m, mpp_flags);
+	}
       else if (status & TUN_WRITE)
-	multi_process_outgoing_tun (m, mpp_flags);
+	{
+	  multi_process_outgoing_tun (m, mpp_flags);
+	}
     }
   else if (status & (SOCKET_READ|TUN_READ))
     {
@@ -251,7 +255,7 @@ multi_process_io_udp (struct multi_context *m)
   /*
    * If must_flush condition, do MPP_PRE_SELECT action on deferred instances.
    */
-  if (m->top.c2.fast_io && !m->pending && multi_postprocess_defer_must_flush (m))
+  if ((m->top.c2.default_iow_flags & IOW_FAST_IO) && !m->pending && multi_postprocess_defer_must_flush (m))
     {
       struct multi_instance *mi;
       const unsigned int defer_mpp_flags = MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL;

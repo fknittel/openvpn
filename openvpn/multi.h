@@ -104,7 +104,7 @@ struct multi_postprocess_defer
 {
   int iter;
 
-#ifdef MPPD_DEBUG
+#ifdef FAST_IO_DEBUG
   int max;
 #endif
 
@@ -481,13 +481,13 @@ multi_postprocess_defer_reset (struct multi_context *m)
 static inline void
 multi_postprocess_defer_add (struct multi_context *m, struct multi_instance *mi)
 {
-#ifdef MPPD_DEBUG
+#ifdef FAST_IO_DEBUG
   void multi_postprocess_defer_max_exceeded (struct multi_postprocess_defer *mpd);
 #endif
 
   ++m->mpd.iter;
 
-#ifdef MPPD_DEBUG
+#ifdef FAST_IO_DEBUG
   if (m->mpd.iter > m->mpd.max)
     multi_postprocess_defer_max_exceeded (&m->mpd);
 #endif
