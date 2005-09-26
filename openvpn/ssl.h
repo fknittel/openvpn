@@ -45,11 +45,6 @@
 #include "thread.h"
 #include "options.h"
 #include "plugin.h"
-#include "mbuf.h"
-
-#if P2MP
-#define TLS_CHANNEL
-#endif
 
 /*
  * OpenVPN Protocol, taken from ssl.h in OpenVPN source code.
@@ -302,12 +297,6 @@
 #define KEY_METHOD_MASK 0x0F
 
 /*
- * Forward declaration of work_thread, used to offload high-latency
- * functions to a background thread;
- */
-struct work_thread;
-
-/*
  * Measure success rate of TLS handshakes, for debugging only
  */
 /* #define MEASURE_TLS_HANDSHAKE_STATS */
@@ -356,7 +345,7 @@ struct key_state
 
   int initial_opcode;		/* our initial P_ opcode */
   struct session_id session_id_remote; /* peer's random session ID */
-  struct openvpn_sockaddr remote_addr;      /* peer's IP addr */
+  struct sockaddr_in remote_addr;      /* peer's IP addr */
   struct packet_id packet_id;	       /* for data channel, to prevent replay attacks */
 
   struct key_ctx_bi key;	       /* data channel keys for encrypt/decrypt/hmac */
@@ -498,15 +487,8 @@ struct tls_session
   char *common_name;
   bool verified;                /* true if peer certificate was verified against CA */
 
-  char *x509_subject;
-
   /* not-yet-authenticated incoming client */
-  struct openvpn_sockaddr untrusted_addr;
-
-#ifdef TLS_CHANNEL
-  struct mbuf_set *channel_incoming;
-  struct mbuf_set *channel_outgoing;
-#endif
+  struct sockaddr_in untrusted_sockaddr;
 
   struct key_state key[KS_SIZE];
 };
@@ -551,12 +533,6 @@ struct tls_multi
    * to tls_post_encrypt()
    */
   struct key_state *save_ks;	/* temporary pointer used between pre/post routines */
-
-  /*
-   * Used to return outgoing address from
-   * tls_multi_process.
-   */
-  struct openvpn_sockaddr to_link_addr;
 
   /*
    * Number of sessions negotiated thus far.
@@ -614,19 +590,19 @@ void tls_multi_init_set_options(struct tls_multi* multi,
 
 bool tls_multi_process (struct tls_multi *multi,
 			struct buffer *to_link,
-			struct openvpn_sockaddr **to_link_addr,
+			struct sockaddr_in *to_link_addr,
 			struct link_socket_info *to_link_socket_info,
 			interval_t *wakeup);
 
 void tls_multi_free (struct tls_multi *multi, bool clear);
 
 bool tls_pre_decrypt (struct tls_multi *multi,
-		      const struct openvpn_sockaddr *from,
+		      struct sockaddr_in *from,
 		      struct buffer *buf,
 		      struct crypto_options *opt);
 
 bool tls_pre_decrypt_lite (const struct tls_auth_standalone *tas,
-			   const struct openvpn_sockaddr *from,
+			   const struct sockaddr_in *from,
 			   const struct buffer *buf);
 
 void tls_pre_encrypt (struct tls_multi *multi,
@@ -649,30 +625,35 @@ void tls_set_verify_x509name (const char *x509name);
 
 void tls_adjust_frame_parameters(struct frame *frame);
 
+bool tls_send_payload (struct tls_multi *multi,
+		       const uint8_t *data,
+		       int size);
+
+bool tls_rec_payload (struct tls_multi *multi,
+		      struct buffer *buf);
+
 const char *tls_common_name (struct tls_multi* multi, bool null);
 void tls_set_common_name (struct tls_multi *multi, const char *common_name);
 void tls_lock_common_name (struct tls_multi *multi);
 
-const char *tls_x509_subject (struct tls_multi *multi, bool null);
-
 bool tls_authenticated (struct tls_multi *multi);
 void tls_deauthenticate (struct tls_multi *multi);
 
-#ifdef TLS_CHANNEL
+/*
+ * inline functions
+ */
 
-#define TLS_PAYLOAD_QUEUE_LEN 16
-
-bool tls_rec_payload (struct tls_multi *multi, struct mbuf_item *item);
-
-bool tls_send_payload (struct tls_multi *multi, const struct mbuf_item *item);
-
-static inline bool
-tls_test_payload (const struct tls_multi *multi)
+static inline int
+tls_test_payload_len (const struct tls_multi *multi)
 {
-  return multi && mbuf_defined (multi->session[TM_ACTIVE].channel_incoming);
+  if (multi)
+    {
+      const struct key_state *ks = &multi->session[TM_ACTIVE].key[KS_PRIMARY];
+      if (ks->state >= S_ACTIVE)
+	return BLEN (&ks->plaintext_read_buf);
+    }
+  return 0;
 }
-
-#endif
 
 /*
  * protocol_dump() flags

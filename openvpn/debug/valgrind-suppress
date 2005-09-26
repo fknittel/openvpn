@@ -290,49 +290,18 @@
 
 {
    test48
-   Memcheck:Leak
-   fun:calloc
-   fun:_dlerror_run
-   fun:dlsym
-   fun:open
+   Memcheck:Value4
+   fun:DES_set_key_unchecked
 }
 
 {
    test49
    Memcheck:Value4
-   fun:DES_set_key_unchecked
+   fun:DES_encrypt2
 }
 
 {
    test50
-   Memcheck:Value4
-   fun:DES_encrypt2
-}
-
-{
-   test51
-   Memcheck:Param
-   execve(envp[i])
-   fun:execve
-   fun:do_system
-   fun:system
-   fun:system
-}
-
-{
-   test52
-   Memcheck:Value4
-   fun:DES_set_key_unchecked
-}
-
-{
-   test53
-   Memcheck:Value4
-   fun:DES_encrypt2
-}
-
-{
-   test54
    Memcheck:Leak
    fun:malloc
    fun:_IO_getdelim

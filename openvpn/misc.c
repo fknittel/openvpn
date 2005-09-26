@@ -39,7 +39,6 @@
 #include "plugin.h"
 #include "options.h"
 #include "manage.h"
-#include "work.h"
 
 #include "memdbg.h"
 
@@ -378,36 +377,18 @@ save_inetd_socket_descriptor (void)
  * Wrapper around the system() call.
  */
 int
-openvpn_system (const char *command, const struct env_set *es, const unsigned int flags)
+openvpn_system (const char *command, const struct env_set *es, unsigned int flags)
 {
 #ifdef HAVE_SYSTEM
   int ret;
 
-  /* debugging */
-  msg (D_SCRIPT, "SYSTEM[%u] '%s'", flags, command);
-  if (flags & S_SCRIPT)
-    env_set_print (D_SCRIPT, es);
-
-  ret = openvpn_system_dowork (command, es, flags);
-
-  /* debugging */
-  msg (D_SCRIPT, "SYSTEM return=%u", ret);
-
-  return ret;
-
-#else
-  msg (M_FATAL, "Sorry but I can't execute the shell command '%s' because this operating system doesn't appear to support the system() call", command);
-  return -1; /* NOTREACHED */
-#endif
-}
-
-#ifdef HAVE_SYSTEM
-int
-openvpn_system_dowork (const char *command, const struct env_set *es, const unsigned int flags)
-{
-  int ret;
-
+  /*
+   * We need to bracket this code by mutex because system() doesn't
+   * accept an environment list, so we have to use the process-wide
+   * list which is shared between all threads.
+   */
   mutex_lock_static (L_SYSTEM);
+  perf_push (PERF_SCRIPT);
 
   /*
    * add env_set to environment.
@@ -415,10 +396,19 @@ openvpn_system_dowork (const char *command, const struct env_set *es, const unsi
   if (flags & S_SCRIPT)
     env_set_add_to_environment (es);
 
+
+  /* debugging */
+  dmsg (D_SCRIPT, "SYSTEM[%u] '%s'", flags, command);
+  if (flags & S_SCRIPT)
+    env_set_print (D_SCRIPT, es);
+
   /*
    * execute the command
    */
   ret = system (command);
+
+  /* debugging */
+  dmsg (D_SCRIPT, "SYSTEM return=%u", ret);
 
   /*
    * remove env_set from environment
@@ -426,11 +416,15 @@ openvpn_system_dowork (const char *command, const struct env_set *es, const unsi
   if (flags & S_SCRIPT)
     env_set_remove_from_environment (es);
 
+  perf_pop ();
   mutex_unlock_static (L_SYSTEM);
-
   return ret;
-}
+
+#else
+  msg (M_FATAL, "Sorry but I can't execute the shell command '%s' because this operating system doesn't appear to support the system() call", command);
+  return -1; /* NOTREACHED */
 #endif
+}
 
 /*
  * Warn if a given file is group/others accessible.
@@ -512,15 +506,10 @@ system_error_message (int stat, struct gc_arena *gc)
  * Run system(), exiting on error.
  */
 bool
-system_check (const char *command, const struct env_set *es, const unsigned int flags, const char *error_message)
-{
-  return system_check_error (openvpn_system (command, es, flags), flags, error_message);
-}
-
-bool
-system_check_error (const int stat, const unsigned int flags, const char *error_message)
+system_check (const char *command, const struct env_set *es, unsigned int flags, const char *error_message)
 {
   struct gc_arena gc = gc_new ();
+  const int stat = openvpn_system (command, es, flags);
   int ret = false;
 
   if (system_ok (stat))
@@ -532,7 +521,6 @@ system_check_error (const int stat, const unsigned int flags, const char *error_
 	     error_message,
 	     system_error_message (stat, &gc));
     }
-
   gc_free (&gc);
   return ret;
 }
@@ -540,7 +528,7 @@ system_check_error (const int stat, const unsigned int flags, const char *error_
 /*
  * Initialize random number seed.  random() is only used
  * when "weak" random numbers are acceptable.
- * OpenSSL functions are always used when cryptographically
+ * OpenSSL routines are always used when cryptographically
  * strong random numbers are required.
  */
 

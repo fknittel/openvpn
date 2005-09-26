@@ -207,58 +207,51 @@ virtual_output_callback_func (void *arg, const unsigned int flags, const char *s
 {
   static int recursive_level = 0; /* GLOBAL */
 
-  if (openvpn_thread_primary ())
+  if (!recursive_level) /* don't allow recursion */
     {
-      if (!recursive_level) /* don't allow recursion */
+      struct gc_arena gc = gc_new ();
+      struct management *man = (struct management *) arg;
+      struct log_entry e;
+      const char *out = NULL;
+
+      ++recursive_level;
+
+      CLEAR (e);
+      update_time ();
+      e.timestamp = now;
+      e.u.msg_flags = flags;
+      e.string = str;
+
+      if (flags & M_FATAL)
+	man->persist.standalone_disabled = false;
+
+      if (flags != M_CLIENT)
+	log_history_add (man->persist.log, &e);
+
+      if (!man_password_needed (man))
 	{
-	  struct gc_arena gc = gc_new ();
-	  struct management *man = (struct management *) arg;
-	  struct log_entry e;
-	  const char *out = NULL;
-
-	  ++recursive_level;
-
-	  CLEAR (e);
-	  update_time ();
-	  e.timestamp = now;
-	  e.u.msg_flags = flags;
-	  e.string = str;
-
+	  if (flags == M_CLIENT)
+	    out = log_entry_print (&e, LOG_PRINT_CRLF, &gc);
+	  else if (man->connection.log_realtime)
+	    out = log_entry_print (&e, LOG_PRINT_INT_DATE
+				   |   LOG_PRINT_MSG_FLAGS
+				   |   LOG_PRINT_LOG_PREFIX
+				   |   LOG_PRINT_CRLF, &gc);
+	  if (out)
+	    man_output_list_push (man, out);
 	  if (flags & M_FATAL)
-	    man->persist.standalone_disabled = false;
-
-	  if (flags != M_CLIENT)
-	    log_history_add (man->persist.log, &e);
-
-	  if (!man_password_needed (man))
 	    {
-	      if (flags == M_CLIENT)
-		out = log_entry_print (&e, LOG_PRINT_CRLF, &gc);
-	      else if (man->connection.log_realtime)
-		out = log_entry_print (&e, LOG_PRINT_INT_DATE
-				       |   LOG_PRINT_MSG_FLAGS
-				       |   LOG_PRINT_LOG_PREFIX
-				       |   LOG_PRINT_CRLF, &gc);
+	      out = log_entry_print (&e, LOG_FATAL_NOTIFY|LOG_PRINT_CRLF, &gc);
 	      if (out)
-		man_output_list_push (man, out);
-	      if (flags & M_FATAL)
 		{
-		  out = log_entry_print (&e, LOG_FATAL_NOTIFY|LOG_PRINT_CRLF, &gc);
-		  if (out)
-		    {
-		      man_output_list_push (man, out);
-		      man_reset_client_socket (man, false);
-		    }
+		  man_output_list_push (man, out);
+		  man_reset_client_socket (man, false);
 		}
 	    }
-
-	  --recursive_level;
-	  gc_free (&gc);
 	}
-    }
-  else
-    {
-      /* JYFIXME -- handle virtual output from work thread */
+
+      --recursive_level;
+      gc_free (&gc);
     }
 }
 
@@ -770,15 +763,12 @@ man_accept (struct management *man)
 {
   struct gc_arena gc = gc_new ();
 
-  struct openvpn_sockaddr act;
   /*
    * Accept the TCP client.
    */
-  man->connection.sd_cli = socket_do_accept (man->connection.sd_top, &act, false);
+  man->connection.sd_cli = socket_do_accept (man->connection.sd_top, &man->connection.remote, false);
   if (socket_defined (man->connection.sd_cli))
     {
-      man->connection.remote = act;
-
       if (socket_defined (man->connection.sd_top))
 	{
 #ifdef WIN32
@@ -1147,9 +1137,9 @@ man_settings_init (struct man_settings *ms,
       /*
        * Initialize socket address
        */
-      ms->local.addr.in.sin_family = AF_INET;
-      ms->local.addr.in.sin_addr.s_addr = 0;
-      ms->local.addr.in.sin_port = htons (port);
+      ms->local.sin_family = AF_INET;
+      ms->local.sin_addr.s_addr = 0;
+      ms->local.sin_port = htons (port);
 
       /*
        * Run management over tunnel, or
@@ -1161,7 +1151,7 @@ man_settings_init (struct man_settings *ms,
 	}
       else
 	{
-	  ms->local.addr.in.sin_addr.s_addr = getaddr
+	  ms->local.sin_addr.s_addr = getaddr
 	    (GETADDR_RESOLVE|GETADDR_WARN_ON_SIGNAL|GETADDR_FATAL, addr, 0, NULL, NULL);
 	}
       
@@ -1408,7 +1398,7 @@ management_post_tunnel_open (struct management *man, const in_addr_t tun_local_i
       && man->connection.state == MS_INITIAL)
     {
       /* listen on our local TUN/TAP IP address */
-      man->settings.local.addr.in.sin_addr.s_addr = htonl (tun_local_ip);
+      man->settings.local.sin_addr.s_addr = htonl (tun_local_ip);
       man_connection_init (man);
     }
 
@@ -1975,7 +1965,7 @@ output_list_push (struct output_list *ol, const unsigned char *str)
 	  ASSERT (!ol->head);
 	  ol->head = e;
 	}
-      e->buf = string_alloc_buf ((const char *) str, 0, NULL);
+      e->buf = string_alloc_buf ((const char *) str, NULL);
       ol->tail = e;
     }
 }

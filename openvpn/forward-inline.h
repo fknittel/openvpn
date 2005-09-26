@@ -77,7 +77,7 @@ check_incoming_control_channel (struct context *c)
 {
 #if P2MP
   void check_incoming_control_channel_dowork (struct context *c);
-  if (tls_test_payload (c->c2.tls_multi))
+  if (tls_test_payload_len (c->c2.tls_multi) > 0)
     check_incoming_control_channel_dowork (c);
 #endif
 }
@@ -234,75 +234,15 @@ register_activity (struct context *c)
  * Return the io_wait() flags appropriate for
  * a point-to-point tunnel.
  */
-
 static inline unsigned int
 p2p_iow_flags (const struct context *c)
 {
-  unsigned int flags = c->c2.default_iow_flags;
+  unsigned int flags = (IOW_SHAPER|IOW_CHECK_RESIDUAL|IOW_FRAG|IOW_READ|IOW_WAIT_SIGNAL);
   if (c->c2.to_link.len > 0)
     flags |= IOW_TO_LINK;
   if (c->c2.to_tun.len > 0)
     flags |= IOW_TO_TUN;
-  if ((flags & (IOW_TO_LINK|IOW_TO_TUN)) == 0)
-    flags |= IOW_READ;
   return flags;
-}
-
-static inline unsigned int
-ess_hint (const struct context *c)
-{
-#ifdef FAST_IO
-  return c->c2.event_set_status_hint;
-#else
-  return 0;
-#endif
-}
-
-static inline void
-ess_hint_eagain (struct context *c, const unsigned int mask)
-{
-#ifdef FAST_IO
-  c->c2.event_set_status_hint &= ~mask;
-#endif
-}
-
-static inline void
-ess_hint_reset (struct context *c)
-{
-#ifdef FAST_IO
-  c->c2.event_set_status_hint = 0;
-#endif
-}
-
-static inline bool
-p2p_idle (const struct context *c)
-{
-#ifdef FAST_IO
-  return !(c->c2.default_iow_flags & IOW_FAST_IO) || (!ANY_OUT(c) && !ess_hint (c));
-#else
-  return true;
-#endif
-}
-
-static inline bool
-is_io_wait_fast_path (struct context *c, const unsigned int flags)
-{
-#ifdef FAST_IO
-  if (flags & IOW_FAST_IO)
-    {
-      if ((flags & IOW_CHECK_RESIDUAL) && socket_read_residual (c->c2.link_socket))
-	c->c2.event_set_status_hint |= SOCKET_READ;
-      {
-	const unsigned int ess = flags & c->c2.event_set_status_hint & ST_RW_MASK;
-	if (ess)
-	  {
-	    c->c2.event_set_status = ess;
-	    return true;
-	  }
-      }
-    }
-#endif
-  return false;
 }
 
 /*
@@ -312,19 +252,25 @@ is_io_wait_fast_path (struct context *c, const unsigned int flags)
 static inline void
 io_wait (struct context *c, const unsigned int flags)
 {
-  if (!is_io_wait_fast_path (c, flags))
+  void io_wait_dowork (struct context *c, const unsigned int flags);
+
+  if (c->c2.fast_io && (flags & (IOW_TO_TUN|IOW_TO_LINK|IOW_MBUF)))
+    {
+      /* fast path -- only for TUN/TAP/UDP writes */
+      unsigned int ret = 0;
+      if (flags & IOW_TO_TUN)
+	ret |= TUN_WRITE;
+      if (flags & (IOW_TO_LINK|IOW_MBUF))
+	ret |= SOCKET_WRITE;
+      c->c2.event_set_status = ret;
+    }
+  else
     {
       /* slow path */
-      io_wait_slow (c, flags);
+      io_wait_dowork (c, flags);
     }
 }
 
 #define CONNECTION_ESTABLISHED(c) (get_link_socket_info(c)->connection_established)
-
-#if defined(SIMULATE_SEND_BLOCKING) && defined(FAST_IO)
-#define DECLARE_SEND_BLOCKING_TEST(c) const bool simulate_send_blocking = (((c)->c2.default_iow_flags & IOW_FAST_IO) && ((get_random () % 7) == 0))
-#else
-#define DECLARE_SEND_BLOCKING_TEST(c) const bool simulate_send_blocking = false
-#endif
 
 #endif /* EVENT_INLINE_H */

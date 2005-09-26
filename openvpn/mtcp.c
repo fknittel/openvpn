@@ -55,14 +55,14 @@
 /*
  * Special tags passed to event.[ch] functions
  */
-#define MTCP_SOCKET       1
-#define MTCP_TUN          2
-#define MTCP_SIG          3 /* Only on Windows */
+#define MTCP_SOCKET      ((void*)1)
+#define MTCP_TUN         ((void*)2)
+#define MTCP_SIG         ((void*)3) /* Only on Windows */
 #ifdef ENABLE_MANAGEMENT
-# define MTCP_MANAGEMENT  4
+# define MTCP_MANAGEMENT ((void*)4)
 #endif
 
-#define MTCP_N           16 /* upper bound on MTCP_x */
+#define MTCP_N           ((void*)16) /* upper bound on MTCP_x */
 
 struct ta_iow_flags
 {
@@ -159,8 +159,7 @@ multi_tcp_instance_specific_init (struct multi_context *m, struct multi_instance
   ASSERT (mi->context.c2.link_socket);
   ASSERT (mi->context.c2.link_socket->info.lsa);
   ASSERT (mi->context.c2.link_socket->mode == LS_MODE_TCP_ACCEPT_FROM);
-  ASSERT (mi->context.c2.link_socket->info.lsa->actual.addr.sa.sa_family == AF_INET);
-  if (!mroute_extract_openvpn_sockaddr (&mi->real, &mi->context.c2.link_socket->info.lsa->actual, true))
+  if (!mroute_extract_sockaddr_in (&mi->real, &mi->context.c2.link_socket->info.lsa->actual, true))
     {
       msg (D_MULTI_ERRORS, "MULTI TCP: TCP client address is undefined");
       return false;
@@ -186,7 +185,7 @@ multi_tcp_init (int maxevents, int *maxclients)
   ALLOC_OBJ_CLEAR (mtcp, struct multi_tcp);
   mtcp->maxevents = maxevents + extra_events;
   mtcp->es = event_set_init (&mtcp->maxevents, 0);
-  wait_signal (mtcp->es, (void *)MTCP_SIG);
+  wait_signal (mtcp->es, MTCP_SIG);
   ALLOC_ARRAY (mtcp->esr, struct event_set_return, mtcp->maxevents);
   *maxclients = max_int (min_int (mtcp->maxevents - extra_events, *maxclients), 1);
   msg (D_MULTI_LOW, "MULTI: TCP INIT maxclients=%d maxevents=%d", *maxclients, mtcp->maxevents);
@@ -240,11 +239,11 @@ multi_tcp_wait (const struct context *c,
 		struct multi_tcp *mtcp)
 {
   int status;
-  socket_set_listen_persistent (c->c2.link_socket, mtcp->es, (void *)MTCP_SOCKET);
-  tun_set (c->c1.tuntap, mtcp->es, EVENT_READ, (void *)MTCP_TUN, &mtcp->tun_rwflags);
+  socket_set_listen_persistent (c->c2.link_socket, mtcp->es, MTCP_SOCKET);
+  tun_set (c->c1.tuntap, mtcp->es, EVENT_READ, MTCP_TUN, &mtcp->tun_rwflags);
 #ifdef ENABLE_MANAGEMENT
   if (management)
-    management_socket_set (management, mtcp->es, (void *)MTCP_MANAGEMENT, &mtcp->management_persist_flags);
+    management_socket_set (management, mtcp->es, MTCP_MANAGEMENT, &mtcp->management_persist_flags);
 #endif
   status = event_wait (mtcp->es, &c->c2.timeval, mtcp->esr, mtcp->maxevents);
   update_time ();
@@ -271,13 +270,13 @@ multi_tcp_process_outgoing_link_ready (struct multi_context *m, struct multi_ins
   ASSERT (mi);
 
   /* extract from queue */
-  if (mbuf_extract_item (mi->tcp_link_out_deferred, &item)) /* ciphertext IP packet */
+  if (mbuf_extract_item (mi->tcp_link_out_deferred, &item, true)) /* ciphertext IP packet */
     {
       dmsg (D_MULTI_TCP, "MULTI TCP: transmitting previously deferred packet");
 
-      ASSERT (mi == (struct multi_instance *)item.arg);
+      ASSERT (mi == item.instance);
       mi->context.c2.to_link = item.buffer->buf;
-      ret = multi_process_outgoing_link_dowork (m, mi, mpp_flags); /* THREAD */
+      ret = multi_process_outgoing_link_dowork (m, mi, mpp_flags);
       if (!ret)
 	mi = NULL;
       mbuf_free_buf (item.buffer);
@@ -305,11 +304,11 @@ multi_tcp_process_outgoing_link (struct multi_context *m, bool defer, const unsi
 	      set_prefix (mi);
 	      dmsg (D_MULTI_TCP, "MULTI TCP: queuing deferred packet");
 	      item.buffer = mb;
-	      item.arg = (void *)mi;
+	      item.instance = mi;
 	      mbuf_add_item (mi->tcp_link_out_deferred, &item);
 	      mbuf_free_buf (mb);
 	      buf_reset (buf);
-	      ret = multi_process_post (m, mi, mpp_flags); /* THREAD */
+	      ret = multi_process_post (m, mi, mpp_flags);
 	      if (!ret)
 		mi = NULL;
 	      clear_prefix ();
@@ -317,7 +316,7 @@ multi_tcp_process_outgoing_link (struct multi_context *m, bool defer, const unsi
 	}
       else
 	{
-	  ret = multi_process_outgoing_link_dowork (m, mi, mpp_flags); /* THREAD */
+	  ret = multi_process_outgoing_link_dowork (m, mi, mpp_flags);
 	  if (!ret)
 	    mi = NULL;
 	}
@@ -405,52 +404,45 @@ multi_tcp_dispatch (struct multi_context *m, struct multi_instance *mi, const in
     case TA_TUN_READ:
       read_incoming_tun (&m->top);
       if (!IS_SIG (&m->top))
-	multi_process_incoming_tun (m, mpp_flags); /* THREAD */
+	multi_process_incoming_tun (m, mpp_flags);
       break;
     case TA_SOCKET_READ:
     case TA_SOCKET_READ_RESIDUAL:
       ASSERT (mi);
       ASSERT (mi->context.c2.link_socket);
       set_prefix (mi);
-      read_incoming_link (&mi->context, &mi->context.c2.from_addr);
+      read_incoming_link (&mi->context);
       clear_prefix ();
-
-#if 1
       if (!IS_SIG (&mi->context))
 	{
 	  multi_process_incoming_link (m, mi, mpp_flags);
 	  if (!IS_SIG (&mi->context))
 	    stream_buf_read_setup (mi->context.c2.link_socket);
 	}
-#else
-      if (!IS_SIG (&mi->context))
-	multi_process_incoming_link (m, mi, mpp_flags | MPP_CALL_STREAM_BUF_READ_SETUP); /* JYFIXME -- THREAD */
-#endif
       break;
-
     case TA_TIMEOUT:
-      multi_process_timeout (m, mpp_flags); /* THREAD */
+      multi_process_timeout (m, mpp_flags);
       break;
     case TA_TUN_WRITE:
-      multi_process_outgoing_tun (m, mpp_flags); /* THREAD */
+      multi_process_outgoing_tun (m, mpp_flags);
       break;
     case TA_TUN_WRITE_TIMEOUT:
-      multi_process_drop_outgoing_tun (m, mpp_flags); /* THREAD */
+      multi_process_drop_outgoing_tun (m, mpp_flags);      
       break;
     case TA_SOCKET_WRITE_READY:
       ASSERT (mi);
-      multi_tcp_process_outgoing_link_ready (m, mi, mpp_flags); /* THREAD */
+      multi_tcp_process_outgoing_link_ready (m, mi, mpp_flags);
       break;
     case TA_SOCKET_WRITE:
-      multi_tcp_process_outgoing_link (m, false, mpp_flags); /* THREAD */
+      multi_tcp_process_outgoing_link (m, false, mpp_flags);
       break;
     case TA_SOCKET_WRITE_DEFERRED:
-      multi_tcp_process_outgoing_link (m, true, mpp_flags); /* THREAD */
+      multi_tcp_process_outgoing_link (m, true, mpp_flags);
       break;
     case TA_INITIAL:
       ASSERT (mi);
       multi_tcp_set_global_rw_flags (m, mi);
-      multi_process_post (m, mi, mpp_flags); /* THREAD */
+      multi_process_post (m, mi, mpp_flags);
       break;
     default:
       msg (M_FATAL, "MULTI TCP: multi_tcp_dispatch, unhandled action=%d", action);
@@ -589,10 +581,9 @@ multi_tcp_action (struct multi_context *m, struct multi_instance *mi, int action
   } while (action != TA_UNDEF);
 }
 
-static int
+static void
 multi_tcp_process_io (struct multi_context *m)
 {
-  int ret = 0;
   struct multi_tcp *mtcp = m->mtcp;
   int i;
 
@@ -601,10 +592,10 @@ multi_tcp_process_io (struct multi_context *m)
       struct event_set_return *e = &mtcp->esr[i];
 
       /* incoming data for instance? */
-      if (e->arg >= (void *)MTCP_N)
+      if (e->arg >= MTCP_N)
 	{
 	  struct multi_instance *mi = (struct multi_instance *) e->arg;
-	  if (multi_instance_ready (mi))
+	  if (mi)
 	    {
 	      if (e->rwflags & EVENT_WRITE)
 		multi_tcp_action (m, mi, TA_SOCKET_WRITE_READY, false);
@@ -614,39 +605,41 @@ multi_tcp_process_io (struct multi_context *m)
 	}
       else
 	{
-	  switch ((int)e->arg)
-	    {
 #ifdef ENABLE_MANAGEMENT
-	    case MTCP_MANAGEMENT:
+	  if (e->arg == MTCP_MANAGEMENT)
+	    {
 	      ASSERT (management);
 	      management_io (management);
-	      break;
+	    }
+	  else
 #endif
-	    case MTCP_TUN: 	  /* incoming data on TUN? */
+	  /* incoming data on TUN? */
+	  if (e->arg == MTCP_TUN)
+	    {
 	      if (e->rwflags & EVENT_WRITE)
 		multi_tcp_action (m, NULL, TA_TUN_WRITE, false);
 	      else if (e->rwflags & EVENT_READ)
 		multi_tcp_action (m, NULL, TA_TUN_READ, false);
-	      break;
-	    case MTCP_SOCKET: /* new incoming TCP client attempting to connect? */
-	      {
-		struct multi_instance *mi;
-		ASSERT (m->top.c2.link_socket);
-		socket_reset_listen_persistent (m->top.c2.link_socket);
-		mi = multi_create_instance_tcp (m);
-		if (mi)
-		  multi_tcp_action (m, mi, TA_INITIAL, false);
-		break;
-	      }
-	    case MTCP_SIG: /* signal received? */
+	    }
+	  /* new incoming TCP client attempting to connect? */
+	  else if (e->arg == MTCP_SOCKET)
+	    {
+	      struct multi_instance *mi;
+	      ASSERT (m->top.c2.link_socket);
+	      socket_reset_listen_persistent (m->top.c2.link_socket);
+	      mi = multi_create_instance_tcp (m);
+	      if (mi)
+		multi_tcp_action (m, mi, TA_INITIAL, false);
+	    }
+	  /* signal received? */
+	  else if (e->arg == MTCP_SIG)
+	    {
 	      get_signal (&m->top.sig->signal_received);
-	      break;
 	    }
 	}
       if (IS_SIG (&m->top))
 	break;
     }
-
   mtcp->n_esr = 0;
 
   /*
@@ -654,73 +647,22 @@ multi_tcp_process_io (struct multi_context *m)
    */
   {
     struct multi_instance *mi;
-    while (!IS_SIG (&m->top) && (mi = (struct multi_instance *) mbuf_peek (m->mbuf)) != NULL)
+    while (!IS_SIG (&m->top) && (mi = mbuf_peek (m->mbuf)) != NULL)
       {
-	if (multi_instance_ready (mi))
-	  multi_tcp_action (m, mi, TA_SOCKET_WRITE, true);
+	multi_tcp_action (m, mi, TA_SOCKET_WRITE, true);
       }
   }
-
-  return ret;
 }
 
 /*
  * Top level event loop for single-threaded operation.
  * TCP mode.
  */
-
-static int
-tunnel_server_tcp_event_loop (void *arg)
-{
-  struct multi_context *m = (struct multi_context *) arg;
-  int ret = 0;
-  int status;
-
-  while (true)
-    {
-      perf_push (PERF_EVENT_LOOP);
-
-#if 0 /* JYFIXME -- pending handling at top of event loop */
-      if (m->pending)
-	{
-	  msg (M_INFO, "****** kill pending");
-	  m->pending = NULL;
-	}
-#endif
-
-      /* wait on tun/socket list */
-      status = -1;
-      if (!IS_SIG (&m->top))
-	{
-	  multi_get_timeout (m, &m->top.c2.timeval);
-	  status = multi_tcp_wait (&m->top, m->mtcp);
-	}
-      MULTI_CHECK_SIG (m);
-
-      if (status > 0)
-	{
-	  /* process the I/O which triggered select */
-	  ret = multi_tcp_process_io (m);
-	  MULTI_CHECK_SIG (m);
-	}
-      else if (status == 0) /* timeout? */
-	{
-	  multi_tcp_action (m, NULL, TA_TIMEOUT, false);
-	}
-
-      /* check on status of coarse timers */
-      multi_process_per_second_timers (m);
-
-      perf_pop ();
-    }
-
-  return ret;
-}
-
 void
 tunnel_server_tcp (struct context *top)
 {
   struct multi_context multi;
+  int status;
 
   top->mode = CM_TOP;
   context_clear_2 (top);
@@ -731,7 +673,7 @@ tunnel_server_tcp (struct context *top)
     return;
   
   /* initialize global multi_context object */
-  multi_init (&multi, top, true);
+  multi_init (&multi, top, true, MC_SINGLE_THREADED);
 
   /* initialize our cloned top object */
   multi_top_init (&multi, top, true);
@@ -743,7 +685,32 @@ tunnel_server_tcp (struct context *top)
   initialization_sequence_completed (top, ISC_SERVER); /* --mode server --proto tcp-server */
 
   /* per-packet event loop */
-  tunnel_server_tcp_event_loop (&multi);
+  while (true)
+    {
+      perf_push (PERF_EVENT_LOOP);
+
+      /* wait on tun/socket list */
+      multi_get_timeout (&multi, &multi.top.c2.timeval);
+      status = multi_tcp_wait (&multi.top, multi.mtcp);
+      MULTI_CHECK_SIG (&multi);
+
+      /* check on status of coarse timers */
+      multi_process_per_second_timers (&multi);
+
+      /* timeout? */
+      if (status > 0)
+	{
+	  /* process the I/O which triggered select */
+	  multi_tcp_process_io (&multi);
+	  MULTI_CHECK_SIG (&multi);
+	}
+      else if (status == 0)
+	{
+	  multi_tcp_action (&multi, NULL, TA_TIMEOUT, false);
+	}
+
+      perf_pop ();
+    }
 
   /* shut down management interface */
   uninit_management_callback_multi (&multi);

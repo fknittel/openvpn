@@ -38,14 +38,6 @@
 
 #include "memdbg.h"
 
-#if ALIGN_OPTIMIZE
-# define BUF_WRITE_HEADER_BYTE(buf, data) buf_write_u8(buf, data)
-# define BUF_READ_HEADER_BYTE(buf)        buf_pop_u8(buf)
-#else
-# define BUF_WRITE_HEADER_BYTE(buf, data) buf_prepend_u8(buf, data)
-# define BUF_READ_HEADER_BYTE(buf)        buf_read_u8(buf)
-#endif
-
 static bool
 lzo_adaptive_compress_test (struct lzo_adaptive_compress *ac)
 {
@@ -183,12 +175,14 @@ lzo_compress (struct buffer *buf, struct buffer work,
   /* did compression save us anything ? */
   if (compressed && work.len < buf->len)
     {
-      BUF_WRITE_HEADER_BYTE (&work, YES_COMPRESS);
+      uint8_t *header = buf_prepend (&work, 1);
+      *header = YES_COMPRESS;
       *buf = work;
     }
   else
     {
-      BUF_WRITE_HEADER_BYTE (buf, NO_COMPRESS);
+      uint8_t *header = buf_prepend (buf, 1);
+      *header = NO_COMPRESS;
     }
 }
 
@@ -206,7 +200,8 @@ lzo_decompress (struct buffer *buf, struct buffer work,
 
   ASSERT (buf_init (&work, FRAME_HEADROOM (frame)));
 
-  c = BUF_READ_HEADER_BYTE (buf);
+  c = *BPTR (buf);
+  ASSERT (buf_advance (buf, 1));
 
   if (c == YES_COMPRESS)	/* packet was compressed */
     {

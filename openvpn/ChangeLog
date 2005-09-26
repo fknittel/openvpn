@@ -3,30 +3,13 @@ Copyright (C) 2002-2005 OpenVPN Solutions LLC <info@openvpn.net>
 
 $Id$
 
-2005.08.26 -- Version 2.1-alpha5
+2005.09.25 -- Version 2.0.3-rc1
 
-* Merged in 2.0.2 changes.
+* openvpn_plugin_abort_v1 function wasn't being properly
+  registered on Windows.
+* Fixed a bug where --mode server --proto tcp-server --cipher none
+  operation could cause tunnel packet truncation.
 
-2005.08.26 -- Version 2.1-alpha4
-
-* Beginning of refactoring of fast-io to cover all modes.
-	
-2005.08.01 -- Version 2.1-alpha3
-
-* --fast-io stable checkpoint
-
-2005.07.31 -- Version 2.1-alpha2
-
-* --fast-io efficiency improvements on UDP/Posix.
-
-2005.07.05 -- Version 2.1-alpha1
-
-* Added some preliminary infrastructure code to handle multithreading.
-* Added IPv6 support (--udp6) and PF_UNIX (--unix-dgram)
-  See README.IPv6 and CHANGES.IPv6 for details (Juanjo Ciarlante).
-* Added UDP multihome support.
-* Merged with 2.0.1_rc5.
-	
 2005.08.25 -- Version 2.0.2
 
 * No change from 2.0.2-rc1.

@@ -37,25 +37,28 @@
 #include "basic.h"
 #include "buffer.h"
 
-#define MBUF_INDEX(head, offset, size) (((head) + (offset)) & ((size)-1))
+struct multi_instance;
 
-#define MBUF_DEFINED ((void*)1)
+#define MBUF_INDEX(head, offset, size) (((head) + (offset)) & ((size)-1))
 
 struct mbuf_buffer
 {
   struct buffer buf;
   int refcount;
+
+# define MF_UNICAST (1<<0)
   unsigned int flags;
 };
 
 struct mbuf_item
 {
   struct mbuf_buffer *buffer;
-  void *arg;
+  struct multi_instance *instance;
 };
 
 struct mbuf_set
 {
+  MUTEX_DEFINE (mutex);
   unsigned int head;
   unsigned int len;
   unsigned int capacity;
@@ -67,14 +70,13 @@ struct mbuf_set *mbuf_init (unsigned int size);
 void mbuf_free (struct mbuf_set *ms);
 
 struct mbuf_buffer *mbuf_alloc_buf (const struct buffer *buf);
-struct mbuf_buffer *mbuf_alloc_string (const char *str, const unsigned int flags);
 void mbuf_free_buf (struct mbuf_buffer *mb);
 
-bool mbuf_add_item (struct mbuf_set *ms, const struct mbuf_item *item);
+void mbuf_add_item (struct mbuf_set *ms, const struct mbuf_item *item);
 
-bool mbuf_extract_item (struct mbuf_set *ms, struct mbuf_item *item);
+bool mbuf_extract_item (struct mbuf_set *ms, struct mbuf_item *item, const bool lock);
 
-void mbuf_dereference (struct mbuf_set *ms, void *arg);
+void mbuf_dereference_instance (struct mbuf_set *ms, struct multi_instance *mi);
 
 static inline bool
 mbuf_defined (const struct mbuf_set *ms)
@@ -94,10 +96,10 @@ mbuf_maximum_queued (const struct mbuf_set *ms)
   return (int) ms->max_queued;
 }
 
-static inline void *
+static inline struct multi_instance *
 mbuf_peek (struct mbuf_set *ms)
 {
-  void *mbuf_peek_dowork (struct mbuf_set *ms);
+  struct multi_instance *mbuf_peek_dowork (struct mbuf_set *ms);
   if (mbuf_defined (ms))
     return mbuf_peek_dowork (ms);
   else

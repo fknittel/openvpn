@@ -197,17 +197,6 @@ buf_printf (struct buffer *buf, const char *format, ...)
 	}
     }
 }
-void buf_puts(struct buffer *buf, const char *str)
-{
-  uint8_t *ptr = BEND (buf);
-  int cap = buf_forward_capacity (buf);
-  if (cap > 0)
-    {
-      strncpynt ((char *)ptr,str, cap);
-      *(buf->data + buf->capacity - 1) = 0; /* windows vsnprintf needs this */
-      buf->len += (int) strlen ((char *)ptr);
-    }
-}
 
 /*
  * This is necessary due to certain buggy implementations of snprintf,
@@ -476,9 +465,9 @@ string_alloc (const char *str, struct gc_arena *gc)
  */
 struct buffer
 #ifdef DMALLOC
-string_alloc_buf_debug (const char *str, const unsigned int flags, struct gc_arena *gc, const char *file, int line)
+string_alloc_buf_debug (const char *str, struct gc_arena *gc, const char *file, int line)
 #else
-string_alloc_buf (const char *str, const unsigned int flags, struct gc_arena *gc)
+string_alloc_buf (const char *str, struct gc_arena *gc)
 #endif
 {
   struct buffer buf;
@@ -491,8 +480,7 @@ string_alloc_buf (const char *str, const unsigned int flags, struct gc_arena *gc
   buf_set_read (&buf, (uint8_t*) string_alloc (str, gc), strlen (str) + 1);
 #endif
 
-  /* Don't count trailing '\0' as part of length */
-  if (!(flags & SAB_INCLUDE_NULL) && buf.len > 0)
+  if (buf.len > 0) /* Don't count trailing '\0' as part of length */
     --buf.len;
 
   return buf;
@@ -728,16 +716,16 @@ character_class_debug (void)
 
 #endif
 
-#if VERIFY_ALIGNMENT
+#ifdef VERIFY_ALIGNMENT
 void
-valign (const struct buffer *buf, const char *file, const int line)
+valign4 (const struct buffer *buf, const char *file, const int line)
 {
   if (buf && buf->len)
     {
       int msglevel = D_ALIGN_DEBUG;
       const unsigned int u = (unsigned int) BPTR (buf);
 
-      if (u & (BUFFER_ALIGN-1))
+      if (u & (PAYLOAD_ALIGN-1))
 	msglevel = D_ALIGN_ERRORS;
 
       msg (msglevel, "%sAlignment at %s/%d ptr=" ptr_format " OLC=%d/%d/%d I=%s/%d",

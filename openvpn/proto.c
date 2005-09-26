@@ -44,7 +44,7 @@ is_ipv4 (int tunnel_type, struct buffer *buf)
   int offset;
   const struct openvpn_iphdr *ih;
 
-  verify_align (buf);
+  verify_align_4 (buf);
   if (tunnel_type == DEV_TYPE_TUN)
     {
       if (BLEN (buf) < (int) sizeof (struct openvpn_iphdr))

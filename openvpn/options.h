@@ -39,7 +39,6 @@
 #include "plugin.h"
 #include "manage.h"
 #include "proxy.h"
-#include "group.h"
 
 /*
  * Maximum number of parameters associated with an option,
@@ -179,9 +178,6 @@ struct options
 
   int mssfix;                   /* Upper bound on TCP MSS */
   bool mssfix_default;          /* true if --mssfix was supplied without a parameter */
-#if USE_PAYLOAD_CONNTRACK
-  int tcp_retrans;		/* Drop TCP retransmissions for this time window [secs] */
-#endif
 
 #if PASSTOS_CAPABILITY
   bool passtos;                  
@@ -223,14 +219,9 @@ struct options
   int status_file_version;
   int status_file_update_freq;
 
-#if 0 /* ALIGN_OPTIMIZE */
-  bool align_optimize;
-#endif
+  /* optimize TUN/TAP/UDP writes */
+  bool fast_io;
 
-#if ENABLE_IP_PKTINFO
-  bool multihome;
-#endif
- 
 #ifdef USE_LZO
   bool comp_lzo;
   bool comp_lzo_adaptive;
@@ -280,12 +271,9 @@ struct options
   struct plugin_option_list *plugin_list;
 #endif
 
-#if GROUPS
-  struct group_info *group_info;
-#endif
-
 #ifdef USE_PTHREAD
   int n_threads;
+  int nice_work;
 #endif
 
 #if P2MP
@@ -448,8 +436,7 @@ struct options
 #define OPT_P_CONFIG          (1<<18)
 #define OPT_P_EXPLICIT_NOTIFY (1<<19)
 #define OPT_P_ECHO            (1<<20)
-#define OPT_P_GROUP           (1<<21)
-#define OPT_P_INHERIT         (1<<22)
+#define OPT_P_INHERIT         (1<<21)
 
 #define OPT_P_DEFAULT   (~OPT_P_INSTANCE)
 

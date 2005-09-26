@@ -159,8 +159,6 @@ openvpn_encrypt (struct buffer *buf, struct buffer work,
 	    }
 
 	  /* Encrypt packet ID, payload */
-	  verify_align(buf);
-	  verify_align(&work);
 	  ASSERT (EVP_CipherUpdate_ov (ctx->cipher, BPTR (&work), &outlen, BPTR (buf), BLEN (buf)));
 	  work.len += outlen;
 
@@ -307,8 +305,6 @@ openvpn_decrypt (struct buffer *buf, struct buffer work,
 	    CRYPT_ERROR ("buffer overflow");
 
 	  /* Decrypt packet ID, payload */
-	  verify_align(buf);
-	  verify_align(&work);
 	  if (!EVP_CipherUpdate_ov (ctx->cipher, BPTR (&work), &outlen, BPTR (buf), BLEN (buf)))
 	    CRYPT_ERROR ("cipher update failed");
 	  work.len += outlen;

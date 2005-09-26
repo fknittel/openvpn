@@ -33,7 +33,6 @@
 #include "init.h"
 #include "forward.h"
 #include "multi.h"
-#include "common.h"
 
 #include "memdbg.h"
 
@@ -46,61 +45,6 @@ process_signal_p2p (struct context *c)
 {
   remap_signal (c);
   return process_signal (c);
-}
-
-static int
-tunnel_point_to_point_event_loop (void *arg)
-{
-  struct context *c = (struct context *) arg;
-  int ret = 0;
-  int count = 0;
-  bool io_order_toggle = false;
-
-  while (true)
-    {
-      unsigned int io_flags;
-
-      perf_push (PERF_EVENT_LOOP);
-      
-      if (p2p_idle (c))
-	{
-	  /* process timers, TLS, etc. */
-	  pre_select (c);
-	  P2P_CHECK_SIG();
-	}
-
-      io_flags = p2p_iow_flags (c);
-      if (!is_io_wait_fast_path (c, io_flags))
-	{
-	  count = 0;
-
-	  /* set up and do the iowait */
-	  io_wait_slow (c, io_flags);
-	  P2P_CHECK_SIG();
-
-	  /* timeout? */
-	  if (c->c2.event_set_status == ES_TIMEOUT)
-	    {
-	      perf_pop ();
-	      continue;
-	    }
-	}
-
-      /* process the I/O which triggered select/poll/epoll/etc. */
-      process_io (c, &io_order_toggle);
-      P2P_CHECK_SIG();
-
-      /* keep track of number of iterations */
-      ++count;
-      if (count >= MPD_MAX_ITERATIONS)
-	{
-	  ess_hint_reset (c);
-	  count = 0;
-	}
-
-      perf_pop ();
-    }
-  return ret;
 }
 
 static void
@@ -119,7 +63,31 @@ tunnel_point_to_point (struct context *c)
   init_management_callback_p2p (c);
 
   /* main event loop */
-  tunnel_point_to_point_event_loop ((void *)c);
+  while (true)
+    {
+      perf_push (PERF_EVENT_LOOP);
+
+      /* process timers, TLS, etc. */
+      pre_select (c);
+      P2P_CHECK_SIG();
+
+      /* set up and do the I/O wait */
+      io_wait (c, p2p_iow_flags (c));
+      P2P_CHECK_SIG();
+
+      /* timeout? */
+      if (c->c2.event_set_status == ES_TIMEOUT)
+	{
+	  perf_pop ();
+	  continue;
+	}
+
+      /* process the I/O which triggered select */
+      process_io (c);
+      P2P_CHECK_SIG();
+
+      perf_pop ();
+    }
 
   uninit_management_callback ();
 

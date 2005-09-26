@@ -185,7 +185,7 @@ struct man_persist {
 
 struct man_settings {
   bool defined;
-  struct openvpn_sockaddr local;
+  struct sockaddr_in local;
   bool up_query_passwords;
   bool management_over_tunnel;
   struct user_pass up;
@@ -212,7 +212,7 @@ struct man_connection {
 
   socket_descriptor_t sd_top;
   socket_descriptor_t sd_cli;
-  struct openvpn_sockaddr remote;
+  struct sockaddr_in remote;
 
 #ifdef WIN32
   struct net_event_win32 ne32;

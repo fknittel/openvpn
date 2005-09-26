@@ -57,14 +57,6 @@
 #include <sys/socket.h>
 #endif
 
-#ifdef USE_PF_UNIX
-#include <sys/un.h>
-#endif
-
-#ifdef USE_PF_INET6
-#include <netinet/in.h>
-#endif
-
 #ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
 #endif
@@ -289,9 +281,6 @@
 # undef HAVE_CPP_VARARG_MACRO_ISO
 # undef EMPTY_ARRAY_SIZE
 # define EMPTY_ARRAY_SIZE 1
-# define NI_NUMERICHOST 0
-# define AI_NUMERICHOST 0
-# define AI_PASSIVE 0
 # undef inline
 # define inline
 #else
@@ -314,15 +303,6 @@
 #define EXTENDED_SOCKET_ERROR_CAPABILITY 1
 #else
 #define EXTENDED_SOCKET_ERROR_CAPABILITY 0
-#endif
-
-/*
- * Does this platform support linux-style IP_PKTINFO?
- */
-#if defined(ENABLE_MULTIHOME) && defined(HAVE_IN_PKTINFO) && defined(IP_PKTINFO) && defined(HAVE_MSGHDR) && defined(HAVE_CMSGHDR) && defined(HAVE_IOVEC) && defined(CMSG_FIRSTHDR) && defined(CMSG_NXTHDR) && defined(HAVE_RECVMSG) && defined(HAVE_SENDMSG)
-#define ENABLE_IP_PKTINFO 1
-#else
-#define ENABLE_IP_PKTINFO 0
 #endif
 
 /*
@@ -386,7 +366,7 @@ socket_defined (const socket_descriptor_t sd)
 }
 
 /*
- * Do we have client/server capability?
+ * Do we have point-to-multipoint capability?
  */
 
 #if defined(ENABLE_CLIENT_SERVER) && defined(USE_CRYPTO) && defined(USE_SSL) && defined(HAVE_GETTIMEOFDAY)
@@ -402,19 +382,6 @@ socket_defined (const socket_descriptor_t sd)
 #endif
 
 /*
- * Do we have groups capability (--group-x options)
- */
-#if defined(ENABLE_GROUPS) && P2MP_SERVER
-#define GROUPS 1
-#else
-#define GROUPS 0
-#endif
-
-/* JYFIXME -- Disable groups feature for now */
-#undef GROUPS
-#define GROUPS 0
-
-/*
  * Do we have a plug-in capability?
  */
 #if defined(USE_LIBDL) || defined(USE_LOAD_LIBRARY)
@@ -427,10 +394,16 @@ socket_defined (const socket_descriptor_t sd)
 #ifdef USE_PTHREAD
 #if defined(USE_CRYPTO) && defined(USE_SSL) && P2MP
 #include <pthread.h>
-#define EVENT_SET_OVERRIDE
 #else
 #undef USE_PTHREAD
 #endif
+#endif
+
+/*
+ * Pthread support is currently experimental (and quite unfinished).
+ */
+#if 1 /* JYFIXME -- if defined, disable pthread */
+#undef USE_PTHREAD
 #endif
 
 /*
@@ -472,12 +445,5 @@ socket_defined (const socket_descriptor_t sd)
 #undef EPOLL
 #define EPOLL 0
 #endif
-
-/*
- * FAST_IO -- optimize for high data throughput
- */
-#define FAST_IO
-#define FAST_IO_DEBUG           /* JYFIXME */
-#define SIMULATE_SEND_BLOCKING  /* JYFIXME */
 
 #endif

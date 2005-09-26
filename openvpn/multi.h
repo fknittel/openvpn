@@ -27,11 +27,9 @@
 
 #if P2MP_SERVER
 
-#include "common.h"
 #include "init.h"
 #include "forward.h"
 #include "mroute.h"
-#include "fastlook.h"
 #include "mbuf.h"
 #include "list.h"
 #include "schedule.h"
@@ -52,23 +50,13 @@ struct multi_reap
   time_t last_call;
 };
 
-#ifdef FAST_IO
-/*
- * Handle queuing of deferred MPP_PRE_SELECT actions
- */
-struct multi_postprocess_defer_instance
-{
-  bool queued;
-};
-#endif
-
 /*
  * One multi_instance object per client instance.
  */
 struct multi_instance {
   struct schedule_entry se;    /* this must be the first element of the structure */
   struct gc_arena gc;
-  /*MUTEX_DEFINE (mutex);*/
+  MUTEX_DEFINE (mutex);
   bool defined;
   bool halt;
   int refcount;
@@ -86,10 +74,6 @@ struct multi_instance {
 
   in_addr_t reporting_addr;       /* IP address shown in status listing */
 
-#ifdef FAST_IO
-  struct multi_postprocess_defer_instance mpdi;
-#endif
-
   bool did_open_context;
   bool did_real_hash;
   bool did_iter;
@@ -99,25 +83,18 @@ struct multi_instance {
   struct context context;
 };
 
-#ifdef FAST_IO
-
-struct multi_postprocess_defer
-{
-  int iter;
-
-#ifdef FAST_IO_DEBUG
-  int max;
-#endif
-
-  int n;
-  struct multi_instance *list[MPD_MAX_QUEUED_INSTANCES];
-};
-#endif
-
 /*
  * One multi_context object per server daemon thread.
  */
 struct multi_context {
+# define MC_UNDEF                      0
+# define MC_SINGLE_THREADED            (1<<0)
+# define MC_MULTI_THREADED_MASTER      (1<<1)
+# define MC_MULTI_THREADED_WORKER      (1<<2)
+# define MC_MULTI_THREADED_SCHEDULER   (1<<3)
+# define MC_WORK_THREAD                (MC_MULTI_THREADED_WORKER|MC_MULTI_THREADED_SCHEDULER)
+  int thread_mode;
+
   struct hash *hash;   /* client instances indexed by real address */
   struct hash *vhash;  /* client instances indexed by virtual address */
   struct hash *iter;   /* like real address hash but optimized for iteration */
@@ -134,22 +111,11 @@ struct multi_context {
   int tcp_queue_limit;
   int status_file_version;
 
-#ifdef FAST_IO
-  struct multi_postprocess_defer mpd;
-#endif
-
-#ifdef FAST_ADDR_LOOKUP
-  struct fast_addr fast_addr;
-  struct fast_addr fast_vaddr;
-#endif
-
-  time_t per_second_trigger;
-
   struct multi_instance *pending;
   struct multi_instance *earliest_wakeup;
   struct multi_instance **mpp_touched;
-
-  bool io_order_toggle;
+  struct context_buffers *context_buffers;
+  time_t per_second_trigger;
 
   struct context top;
 };
@@ -162,11 +128,8 @@ struct multi_route
   struct mroute_addr addr;
   struct multi_instance *instance;
 
-  /* must not collide with MGI_ (multi.c), or S_ (misc.h) flags */
-# define MULTI_ROUTE_CACHE   (1<<8)
-# define MULTI_ROUTE_AGEABLE (1<<9)
-# define MULTI_ROUTE_MASK    (MULTI_ROUTE_CACHE|MULTI_ROUTE_AGEABLE)
-# define MULTI_LOOKUP_CACHE  (1<<10)
+# define MULTI_ROUTE_CACHE   (1<<0)
+# define MULTI_ROUTE_AGEABLE (1<<1)
   unsigned int flags;
 
   unsigned int cache_generation;
@@ -182,14 +145,13 @@ const char *multi_instance_string (const struct multi_instance *mi, bool null, s
 
 void multi_bcast (struct multi_context *m,
 		  const struct buffer *buf,
-		  struct multi_instance *src,
-		  const struct mroute_addr *srcaddr);
+		  struct multi_instance *omit);
 
 /*
  * Called by mtcp.c, mudp.c, or other (to be written) protocol drivers
  */
 
-void multi_init (struct multi_context *m, struct context *t, bool tcp_mode);
+void multi_init (struct multi_context *m, struct context *t, bool tcp_mode, int thread_mode);
 void multi_uninit (struct multi_context *m);
 
 void multi_top_init (struct multi_context *m, const struct context *top, const bool alloc_buffers);
@@ -200,15 +162,10 @@ void multi_close_instance (struct multi_context *m, struct multi_instance *mi, b
 
 bool multi_process_timeout (struct multi_context *m, const unsigned int mpp_flags);
 
-/* flags for multi_process_post */
-#define MPP_PRE_SELECT                 (1<<0)
-#define MPP_CLOSE_ON_SIGNAL            (1<<1)
-#define MPP_RECORD_TOUCH               (1<<2)
-
-#ifdef FAST_IO
-#define MPP_POSTPROCESS_DEFER          (1<<3)
-#endif
-
+#define MPP_PRE_SELECT             (1<<0)
+#define MPP_CONDITIONAL_PRE_SELECT (1<<1)
+#define MPP_CLOSE_ON_SIGNAL        (1<<2)
+#define MPP_RECORD_TOUCH           (1<<3)
 bool multi_process_post (struct multi_context *m, struct multi_instance *mi, const unsigned int flags);
 
 bool multi_process_incoming_link (struct multi_context *m, struct multi_instance *instance, const unsigned int mpp_flags);
@@ -232,21 +189,6 @@ void multi_close_instance_on_signal (struct multi_context *m, struct multi_insta
 
 void init_management_callback_multi (struct multi_context *m);
 void uninit_management_callback_multi (struct multi_context *m);
-
-/*
- * Is instance ready with respect to work thread locking?
- */
-static inline bool
-multi_instance_ready (const struct multi_instance *mi)
-{
-  return mi != NULL;
-}
-
-static inline struct multi_instance *
-multi_instance_ref (struct multi_instance *mi)
-{
-  return mi;
-}
 
 /*
  * Return true if our output queue is not full
@@ -275,7 +217,7 @@ multi_process_outgoing_link_pre (struct multi_context *m)
     mi = m->pending;
   else if (mbuf_defined (m->mbuf))
     mi = multi_get_queue (m->mbuf);
-  return multi_instance_ref (mi);
+  return mi;
 }
 
 /*
@@ -324,8 +266,8 @@ multi_instance_dec_refcount (struct multi_instance *mi)
 {
   if (--mi->refcount <= 0)
     {
-      ASSERT (mi->halt);
       gc_free (&mi->gc);
+      mutex_destroy (&mi->mutex);
       free (mi);
     }
 }
@@ -343,7 +285,7 @@ static inline bool
 multi_route_defined (const struct multi_context *m,
 		     const struct multi_route *r)
 {
-  if (r->instance->halt || !multi_instance_ready (r->instance))
+  if (r->instance->halt)
     return false;
   else if ((r->flags & MULTI_ROUTE_CACHE)
 	   && r->cache_generation != m->route_helper->cache_generation)
@@ -399,9 +341,9 @@ clear_prefix (void)
 #define MULTI_CACHE_ROUTE_TTL 60
 
 static inline void
-multi_reap_process (struct multi_context *m)
+multi_reap_process (const struct multi_context *m)
 {
-  void multi_reap_process_dowork (struct multi_context *m);
+  void multi_reap_process_dowork (const struct multi_context *m);
   if (m->reaper->last_call != now)
     multi_reap_process_dowork (m);
 }
@@ -488,73 +430,16 @@ multi_process_outgoing_link_dowork (struct multi_context *m, struct multi_instan
  */
 #define MULTI_CHECK_SIG(m) EVENT_LOOP_CHECK_SIGNAL (&(m)->top, multi_process_signal, (m))
 
-/*
- * Set currently pending instance
- */
 static inline void
 multi_set_pending (struct multi_context *m, struct multi_instance *mi)
 {
-  m->pending = multi_instance_ref (mi);
-}
-
-#ifdef FAST_IO
-
-/*
- * Handle queuing of deferred MPP_PRE_SELECT actions
- * inline functions
- */
-
-static inline void
-multi_postprocess_defer_reset (struct multi_context *m)
-{
-  void multi_postprocess_defer_reset_dowork (struct multi_context *m);
-  m->mpd.iter = 0;
-  if (m->mpd.n > 0)
-    multi_postprocess_defer_reset_dowork (m);
+  m->pending = mi;
 }
 
 static inline void
-multi_postprocess_defer_add (struct multi_context *m, struct multi_instance *mi)
+multi_release_io_lock (struct multi_context *m)
 {
-#ifdef FAST_IO_DEBUG
-  void multi_postprocess_defer_max_exceeded (struct multi_postprocess_defer *mpd);
-#endif
-
-  ++m->mpd.iter;
-
-#ifdef FAST_IO_DEBUG
-  if (m->mpd.iter > m->mpd.max)
-    multi_postprocess_defer_max_exceeded (&m->mpd);
-#endif
-
-  if (!mi->mpdi.queued)
-    {
-      ASSERT (m->mpd.n < MPD_MAX_QUEUED_INSTANCES);
-      m->mpd.list[m->mpd.n++] = mi;
-      mi->mpdi.queued = true;
-    }
 }
-
-static inline struct multi_instance *
-multi_postprocess_defer_get (struct multi_context *m)
-{
-  struct multi_instance *mi = NULL;
-  if (m->mpd.n > 0)
-    {
-      mi = m->mpd.list[--m->mpd.n];
-      mi->mpdi.queued = false;
-    }
-  return mi;
-}
-
-static inline bool 
-multi_postprocess_defer_must_flush (struct multi_context *m)
-{
-  return (!m->top.c2.event_set_status_hint)
-    || (m->mpd.iter >= MPD_MAX_ITERATIONS)
-    || (m->mpd.n == MPD_MAX_QUEUED_INSTANCES);
-}
-#endif /* FAST_IO */
 
 #endif /* P2MP_SERVER */
 #endif /* MULTI_H */

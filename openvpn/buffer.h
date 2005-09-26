@@ -27,7 +27,6 @@
 
 #include "basic.h"
 #include "thread.h"
-#include "common.h"
 
 /*
  * Define verify_align function, otherwise
@@ -38,7 +37,7 @@
 /*
  * Keep track of source file/line of buf_init calls
  */
-#if VERIFY_ALIGNMENT
+#ifdef VERIFY_ALIGNMENT
 #define BUF_INIT_TRACKING
 #endif
 
@@ -84,26 +83,25 @@ void free_buf (struct buffer *buf);
 
 bool buf_assign (struct buffer *dest, const struct buffer *src);
 
-/* flags for string_alloc_buf */
-#define SAB_INCLUDE_NULL (1<<0)
+
 
 /* for dmalloc debugging */
 
 #ifdef DMALLOC
 
-#define alloc_buf(size)                   alloc_buf_debug (size, __FILE__, __LINE__)
-#define alloc_buf_gc(size, gc)            alloc_buf_gc_debug (size, gc, __FILE__, __LINE__);
-#define clone_buf(buf)                    clone_buf_debug (buf, __FILE__, __LINE__);
-#define gc_malloc(size, clear, arena)     gc_malloc_debug (size, clear, arena, __FILE__, __LINE__)
-#define string_alloc(str, gc)             string_alloc_debug (str, gc, __FILE__, __LINE__)
-#define string_alloc_buf(str, flags, gc)  string_alloc_buf_debug (str, flags, gc, __FILE__, __LINE__)
+#define alloc_buf(size)               alloc_buf_debug (size, __FILE__, __LINE__)
+#define alloc_buf_gc(size, gc)        alloc_buf_gc_debug (size, gc, __FILE__, __LINE__);
+#define clone_buf(buf)                clone_buf_debug (buf, __FILE__, __LINE__);
+#define gc_malloc(size, clear, arena) gc_malloc_debug (size, clear, arena, __FILE__, __LINE__)
+#define string_alloc(str, gc)         string_alloc_debug (str, gc, __FILE__, __LINE__)
+#define string_alloc_buf(str, gc)     string_alloc_buf_debug (str, gc, __FILE__, __LINE__)
 
 struct buffer alloc_buf_debug (size_t size, const char *file, int line);
 struct buffer alloc_buf_gc_debug (size_t size, struct gc_arena *gc, const char *file, int line);
 struct buffer clone_buf_debug (const struct buffer* buf, const char *file, int line);
 void *gc_malloc_debug (size_t size, bool clear, struct gc_arena *a, const char *file, int line);
 char *string_alloc_debug (const char *str, struct gc_arena *gc, const char *file, int line);
-struct buffer string_alloc_buf_debug (const char *str, const unsigned int flags, struct gc_arena *gc, const char *file, int line);
+struct buffer string_alloc_buf_debug (const char *str, struct gc_arena *gc, const char *file, int line);
 
 #else
 
@@ -112,7 +110,7 @@ struct buffer alloc_buf_gc (size_t size, struct gc_arena *gc); /* allocate buffe
 struct buffer clone_buf (const struct buffer* buf);
 void *gc_malloc (size_t size, bool clear, struct gc_arena *a);
 char *string_alloc (const char *str, struct gc_arena *gc);
-struct buffer string_alloc_buf (const char *str, const unsigned int flags, struct gc_arena *gc);
+struct buffer string_alloc_buf (const char *str, struct gc_arena *gc);
 
 #endif
 
@@ -133,13 +131,6 @@ buf_reset (struct buffer *buf)
   buf->offset = 0;
   buf->len = 0;
   buf->data = NULL;
-}
-
-static inline void
-buf_ref (struct buffer *dest, const struct buffer *src)
-{
-  dest->len = src->len;
-  dest->data = src->data;
 }
 
 static inline bool
@@ -207,11 +198,6 @@ void buf_printf (struct buffer *buf, const char *format, ...)
     __attribute__ ((format (printf, 2, 3)))
 #endif
     ;
-
-/*
- * append str to a buffer with overflow check
- */
-void buf_puts(struct buffer *buf, const char *str);
 
 /*
  * Like snprintf but guarantees null termination for size > 0
@@ -409,24 +395,8 @@ buf_write_prepend (struct buffer *dest, const void *src, int size)
 static inline bool
 buf_write_u8 (struct buffer *dest, int data)
 {
-  if (dest->offset + dest->len < dest->capacity)
-    {
-      *BEND(dest) = (uint8_t) data;
-      ++dest->len;
-      return true;
-    }
-  else
-    return false;
-}
-
-static inline bool
-buf_prepend_u8 (struct buffer *dest, int data)
-{
-  uint8_t *p = buf_prepend (dest, sizeof (uint8_t));
-  if (!p)
-    return false;
-  *p = (uint8_t) data;
-  return true;
+  uint8_t u8 = (uint8_t) data;
+  return buf_write (dest, &u8, sizeof (uint8_t));
 }
 
 static inline bool
@@ -518,15 +488,6 @@ buf_read_u8 (struct buffer *buf)
   ret = *BPTR(buf);
   buf_advance (buf, 1);
   return ret;
-}
-
-static inline int
-buf_pop_u8 (struct buffer *buf)
-{
-  if (buf->len < 1)
-    return -1;
-  --buf->len;
-  return *BEND(buf);
 }
 
 static inline int
@@ -645,11 +606,11 @@ void character_class_debug (void);
 /*
  * Verify that a pointer is correctly aligned
  */
-#if VERIFY_ALIGNMENT
-  void valign (const struct buffer *buf, const char *file, const int line);
-# define verify_align(buf) valign(buf, __FILE__, __LINE__)
+#ifdef VERIFY_ALIGNMENT
+  void valign4 (const struct buffer *buf, const char *file, const int line);
+# define verify_align_4(ptr) valign4(buf, __FILE__, __LINE__)
 #else
-# define verify_align(buf)
+# define verify_align_4(ptr)
 #endif
 
 /*

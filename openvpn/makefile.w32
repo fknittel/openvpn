@@ -62,7 +62,6 @@ EXE = openvpn.exe
 HEADERS = \
 	base64.h \
 	basic.h \
-	bitarray.h \
 	buffer.h \
 	circ_list.h \
 	common.h \
@@ -73,14 +72,11 @@ HEADERS = \
 	errlevel.h \
 	error.h \
 	event.h \
-	fastlook.h \
-	fastlook-inline.h \
         fdmisc.h \
 	forward-inline.h \
 	forward.h \
 	fragment.h \
         gremlin.h \
-	group.h \
 	helper.h \
 	init.h \
 	integer.h \
@@ -105,8 +101,6 @@ HEADERS = \
 	options.h \
 	otime.h \
 	packet_id.h \
-	payload.h \
-	payload-inline.h \
 	perf.h \
 	ping-inline.h \
 	ping.h \
@@ -124,13 +118,11 @@ HEADERS = \
 	socket.h \
 	socks.h \
 	ssl.h \
-	ssl-x509.h \
         status.h \
 	syshead.h \
         thread.h \
 	tun.h \
-	win32.h \
-        work.h
+	win32.h
 
 OBJS =  base64.o \
 	buffer.o \
@@ -138,12 +130,10 @@ OBJS =  base64.o \
 	cryptoapi.o \
 	error.o \
 	event.o \
-	fastlook.o \
 	fdmisc.o \
 	forward.o \
         fragment.o \
 	gremlin.o \
-	group.o \
 	helper.o \
 	init.o \
 	interval.o \
@@ -164,7 +154,6 @@ OBJS =  base64.o \
 	options.o \
 	otime.o \
 	packet_id.o \
-	payload.o \
 	perf.o \
 	ping.o \
 	plugin.o \
@@ -184,8 +173,7 @@ OBJS =  base64.o \
 	status.o \
 	thread.o \
 	tun.o \
-	win32.o \
-	work.o
+	win32.o
 
 dynamic : MY_CC = ${CC}
 dynamic : MY_INCLUDE_DIRS = ${INCLUDE_DIRS}

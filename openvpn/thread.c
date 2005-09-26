@@ -70,6 +70,8 @@ ssl_thread_setup (void)
 {
   int i;
 
+#error L_MSG needs to be initialized as a recursive mutex
+
   ssl_mutex = OPENSSL_malloc (CRYPTO_num_locks () * sizeof (struct sparse_mutex));
   for (i = 0; i < CRYPTO_num_locks (); i++)
     pthread_mutex_init (&ssl_mutex[i].mutex, NULL);
@@ -92,13 +94,6 @@ ssl_thread_cleanup (void)
 
 struct sparse_mutex mutex_array[N_MUTEXES]; /* GLOBAL */
 bool pthread_initialized;                   /* GLOBAL */
-openvpn_thread_t primary_thread_id;         /* GLOBAL */
-
-static void
-do_mutex_init (pthread_mutex_t *mutex)
-{
-  ASSERT (!pthread_mutex_init (mutex, NULL));
-}
 
 openvpn_thread_t
 openvpn_thread_create (void *(*start_routine) (void *), void* arg)
@@ -133,13 +128,9 @@ openvpn_thread_init ()
   
   /* initialize static mutexes */
   for (i = 0; i < N_MUTEXES; i++)
-    {
-      do_mutex_init (&mutex_array[i].mutex);
-    }
+    ASSERT (!pthread_mutex_init (&mutex_array[i].mutex, NULL));
 
   msg_thread_init ();
-
-  primary_thread_id = pthread_self();
 
   pthread_initialized = true;
 }
@@ -163,8 +154,6 @@ openvpn_thread_cleanup ()
 	ASSERT (!pthread_mutex_destroy (&mutex_array[i].mutex));
 
       msg_thread_uninit ();
-
-      primary_thread_id = 0;
     }
 }
 

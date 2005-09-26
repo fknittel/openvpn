@@ -38,7 +38,6 @@
 #include "otime.h"
 #include "pool.h"
 #include "gremlin.h"
-#include "work.h"
 
 #include "memdbg.h"
 
@@ -683,6 +682,7 @@ do_init_tun (struct context *c)
 			   addr_host (&c->c1.link_socket_addr.remote),
 			   !c->options.ifconfig_nowarn,
 			   c->c2.es);
+
   init_tun_post (c->c1.tuntap,
 		 &c->c2.frame,
 		 &c->options.tuntap_options);
@@ -1050,29 +1050,15 @@ socket_restart_pause (struct context *c)
   switch (c->options.proto)
     {
     case PROTO_UDPv4:
-#ifdef USE_PF_INET6
-    case PROTO_UDPv6:
-#endif
       if (proxy)
 	sec = c->options.connect_retry_seconds;
       break;
-#ifdef USE_PF_INET6
-    case PROTO_TCPv6_SERVER:
-#endif
     case PROTO_TCPv4_SERVER:
       sec = 1;
       break;
-#ifdef USE_PF_INET6
-    case PROTO_TCPv6_CLIENT:
-#endif
     case PROTO_TCPv4_CLIENT:
       sec = c->options.connect_retry_seconds;
       break;
-#ifdef USE_PF_UNIX
-    case PROTO_UNIX_DGRAM:
-      sec = 2;
-      break;
-#endif
     }
 
 #ifdef ENABLE_DEBUG
@@ -1126,8 +1112,7 @@ frame_finalize_options (struct context *c, const struct options *o)
       frame_or_align_flags (&c->c2.frame,
 			    FRAME_HEADROOM_MARKER_FRAGMENT
 			    |FRAME_HEADROOM_MARKER_READ_LINK
-			    |FRAME_HEADROOM_MARKER_READ_STREAM
-			    |FRAME_HEADROOM_MARKER_DECRYPT);
+			    |FRAME_HEADROOM_MARKER_READ_STREAM);
     }
   
   frame_finalize (&c->c2.frame,
@@ -1671,10 +1656,6 @@ do_init_buffers (struct context *c)
 {
   c->c2.buffers = init_context_buffers (&c->c2.frame);
   c->c2.buffers_owned = true;
-
-  /* initialize buffer parameters */
-  ASSERT (buf_init (&c->c2.buffers->read_link_buf,
-		    FRAME_HEADROOM_ADJ (&c->c2.frame, FRAME_HEADROOM_MARKER_READ_LINK)));
 }
 
 #ifdef ENABLE_FRAGMENT
@@ -1705,17 +1686,6 @@ do_init_mssfix (struct context *c)
     }
 }
 
-#ifdef USE_PAYLOAD_CONNTRACK
-static void
-do_init_payload(struct context *c)
-{
-  if (c->options.tcp_retrans)
-    {
-      c->c2.payload_context = payload_new(c->options.tcp_retrans);
-    }
-}
-
-#endif
 /*
  * Allocate our socket object.
  */
@@ -1733,13 +1703,6 @@ do_link_socket_new (struct context *c)
 static void
 do_init_socket_1 (struct context *c, int mode)
 {
-  unsigned int flags = 0;
-
-#if ENABLE_IP_PKTINFO
-  if (c->options.multihome)
-    flags |= SF_USE_IP_PKTINFO;
-#endif
-  
   link_socket_init_phase1 (c->c2.link_socket,
 			   c->options.local,
 			   c->c1.remote_list,
@@ -1766,8 +1729,7 @@ do_init_socket_1 (struct context *c, int mode)
 			   c->options.connect_retry_seconds,
 			   c->options.mtu_discover_type,
 			   c->options.rcvbuf,
-			   c->options.sndbuf,
-			   flags);
+			   c->options.sndbuf);
 }
 
 /*
@@ -1983,21 +1945,6 @@ do_close_fragment (struct context *c)
 }
 #endif
 
-#ifdef USE_PAYLOAD_CONNTRACK
-/*
- * Close payload conn tracker
- */
-static void
-do_close_payload (struct context *c)
-{
-  if (c->c2.payload_context)
-  {
-    payload_free (c->c2.payload_context);
-    c->c2.payload_context = NULL;
-  }
-}
-#endif
-
 /*
  * Open and close our event objects.
  */
@@ -2105,6 +2052,37 @@ do_inherit_env (struct context *c, const struct env_set *src)
   env_set_inherit (c->c2.es, src);
 }
 
+/*
+ * Fast I/O setup.  Fast I/O is an optimization which only works
+ * if all of the following are true:
+ *
+ * (1) The platform is not Windows
+ * (2) --proto udp is enabled
+ * (3) --shaper is disabled
+ */
+static void
+do_setup_fast_io (struct context *c)
+{
+  if (c->options.fast_io)
+    {
+#ifdef WIN32
+      msg (M_INFO, "NOTE: --fast-io is disabled since we are running on Windows");
+#else
+      if (c->options.proto != PROTO_UDPv4)
+	msg (M_INFO, "NOTE: --fast-io is disabled since we are not using UDP");
+      else
+	{
+	  if (c->options.shaper)
+	    msg (M_INFO, "NOTE: --fast-io is disabled since we are using --shaper");
+	  else
+	    {
+	      c->c2.fast_io = true;
+	    }
+	}
+#endif
+    }
+}
+
 static void
 do_signal_on_tls_errors (struct context *c)
 {
@@ -2141,22 +2119,6 @@ do_close_plugins (struct context *c)
     }
 #endif
 }
-
-#if GROUPS
-
-static void
-do_open_groups (struct context *c, const bool server)
-{
-  group_context_init (&c->c2.group_context, c->options.group_info, server);
-}
-
-static void
-do_close_groups (struct context *c)
-{
-  group_context_close (&c->c2.group_context);
-}
-
-#endif /* GROUPS */
 
 #ifdef ENABLE_MANAGEMENT
 
@@ -2294,7 +2256,7 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
   /* init garbage collection level */
   gc_init (&c->c2.gc);
 
-  /* init signal vars */
+  /* signals caught here will abort */
   c->sig->signal_received = 0;
   c->sig->signal_text = NULL;
   c->sig->hard = false;
@@ -2302,7 +2264,7 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
   /* link_socket_mode allows CM_CHILD_TCP
      instances to inherit acceptable fds
      from a top-level parent */
-  if (c->options.proto == PROTO_TCPv4_SERVER || c->options.proto == PROTO_TCPv6_SERVER)
+  if (c->options.proto == PROTO_TCPv4_SERVER)
     {
       if (c->mode == CM_TOP)
 	link_socket_mode = LS_MODE_TCP_LISTEN;
@@ -2341,8 +2303,9 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
   if (c->mode == CM_P2P || c->mode == CM_TOP)
     do_open_plugins (c);
 
-  /* set I/O flags based on options */
-  p2p_iow_flags_init (c);
+  /* should we enable fast I/O? */
+  if (c->mode == CM_P2P || c->mode == CM_TOP)
+    do_setup_fast_io (c);
 
   /* should we throw a signal on TLS errors? */
   do_signal_on_tls_errors (c);
@@ -2375,11 +2338,6 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
   /* initialize internal fragmentation object */
   if (options->fragment && (c->mode == CM_P2P || child))
     c->c2.fragment = fragment_init (&c->c2.frame);
-#endif
-
-#if GROUPS
-  if (c->mode == CM_TOP || child)
-    do_open_groups (c, c->mode == CM_TOP);
 #endif
 
   /* init crypto layer */
@@ -2421,9 +2379,6 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
   /* initialize dynamic MTU variable */
   do_init_mssfix (c);
 
-#ifdef USE_PAYLOAD_CONNTRACK
-  do_init_payload(c);
-#endif
   /* bind the TCP/UDP socket */
   if (c->mode == CM_P2P || c->mode == CM_TOP || c->mode == CM_CHILD_TCP)
     do_init_socket_1 (c, link_socket_mode);
@@ -2448,12 +2403,6 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
 
   /* do one-time inits, and possibily become a daemon here */
   do_init_first_time (c);
-
-#if 0
-  /* start work thread here */
-  if (c->mode == CM_P2P || c->mode == CM_TOP || child)
-    do_init_pthread (c, child);
-#endif
 
   /*
    * Actually do UID/GID downgrade, and chroot, if requested.
@@ -2518,14 +2467,6 @@ close_instance (struct context *c)
 	/* close TUN/TAP device */
 	do_close_tun (c, false);
 
-#if 0
-	/* close work thread */
-	do_close_pthread (c);
-#endif
-
-#ifdef USE_PAYLOAD_CONNTRACK
-	do_close_payload(c);
-#endif
 	/* call plugin close functions and unload */
 	do_close_plugins (c);
 
@@ -2534,10 +2475,6 @@ close_instance (struct context *c)
 
 	/* close --status file */
 	do_close_status_output (c);
-
-#if GROUPS
-	do_close_groups (c);
-#endif
 
 #ifdef ENABLE_FRAGMENT
 	/* close fragmentation handler */
@@ -2558,7 +2495,17 @@ inherit_context_child (struct context *dest,
 {
   CLEAR (*dest);
 
-  dest->mode = proto_is_dgram(src->options.proto)? CM_CHILD_UDP : CM_CHILD_TCP;
+  switch (src->options.proto)
+    {
+    case PROTO_UDPv4:
+      dest->mode = CM_CHILD_UDP;
+      break;
+    case PROTO_TCPv4_SERVER:
+      dest->mode = CM_CHILD_TCP;
+      break;
+    default:
+      ASSERT (0);
+    }
 
   dest->first_time = false;
 
@@ -2575,12 +2522,6 @@ inherit_context_child (struct context *dest,
   /* inherit SSL context */
   dest->c1.ks.ssl_ctx = src->c1.ks.ssl_ctx;
   dest->c1.ks.tls_auth_key = src->c1.ks.tls_auth_key;
-#endif
-#endif
-
-#if 0
-#ifdef USE_PTHREAD
-  dest->c1.work_thread = src->c1.work_thread;
 #endif
 #endif
 
@@ -2608,17 +2549,12 @@ inherit_context_child (struct context *dest,
   /* inherit tun/tap interface object */
   dest->c1.tuntap = src->c1.tuntap;
 
-  /* inherit buffers from parent if child's buffers are undefined */
-  if (!dest->c2.buffers)
-    dest->c2.buffers = src->c2.buffers;
-
-#if GROUPS
-  group_context_inherit (&dest->c2.group_context, &src->c2.group_context);
-#endif
-
   /* UDP inherits some extra things which TCP does not */
   if (dest->mode == CM_CHILD_UDP)
     {
+      /* inherit buffers */
+      dest->c2.buffers = src->c2.buffers;
+
       /* inherit parent link_socket and tuntap */
       dest->c2.link_socket = src->c2.link_socket;
 
@@ -2666,18 +2602,8 @@ inherit_context_top (struct context *dest,
   dest->c2.link_socket_owned = false;
   dest->c2.buffers_owned = false;
 
-#if GROUPS
-  group_context_detach (&dest->c2.group_context);
-#endif
-
-#if 0
-#ifdef USE_PTHREAD
-  dest->c1.work_thread_owned = false;
-#endif
-#endif
-
   dest->c2.event_set = NULL;
-  if (proto_is_dgram(src->options.proto))
+  if (src->options.proto == PROTO_UDPv4)
     do_event_set_init (dest, false);
 }
 

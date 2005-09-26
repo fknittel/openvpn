@@ -211,6 +211,8 @@ void x_msg (const unsigned int flags, const char *format, ...)
 
   gc_init (&gc);
 
+  mutex_lock_static (L_MSG);
+
   m1 = (char *) gc_malloc (ERR_BUF_SIZE, false, &gc);
   m2 = (char *) gc_malloc (ERR_BUF_SIZE, false, &gc);
 
@@ -282,8 +284,6 @@ void x_msg (const unsigned int flags, const char *format, ...)
 
   if (!(flags & M_MSG_VIRT_OUT))
     {
-      mutex_lock_static (L_MSG);
-
       if (use_syslog && !std_redir)
 	{
 #if SYSLOG_CAPABILITY
@@ -325,13 +325,13 @@ void x_msg (const unsigned int flags, const char *format, ...)
 	  fflush(fp);
 	  ++x_msg_line_num;
 	}
-
-      mutex_unlock_static (L_MSG);
     }
 
   if (flags & M_FATAL)
     msg (M_INFO, "Exiting");
 
+  mutex_unlock_static (L_MSG);
+  
   if (flags & M_FATAL)
     openvpn_exit (OPENVPN_EXIT_STATUS_ERROR); /* exit point */
 
@@ -377,7 +377,6 @@ void
 assert_failed (const char *filename, int line)
 {
   msg (M_FATAL, "Assertion failed at %s:%d", filename, line);
-  /* crash (); */
 }
 
 /*
@@ -702,15 +701,6 @@ msg_flags_string (const unsigned int flags, struct gc_arena *gc)
     buf_printf (&out, "D");
   return BSTR (&out);
 }
-
-#ifdef ENABLE_DEBUG
-void
-crash (void)
-{
-  char *null = NULL;
-  *null = 0;
-}
-#endif
 
 #ifdef WIN32
 

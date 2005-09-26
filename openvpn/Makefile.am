@@ -36,7 +36,6 @@ dist_noinst_SCRIPTS = $(TESTS)
 openvpn_SOURCES = \
         base64.c base64.h \
 	basic.h \
-	bitarray.h \
 	buffer.c buffer.h \
 	circ_list.h \
 	common.h \
@@ -44,12 +43,10 @@ openvpn_SOURCES = \
 	errlevel.h \
 	error.c error.h \
 	event.c event.h \
-	fastlook.c fastlook.h fastlook-inline.h \
 	fdmisc.c fdmisc.h \
         forward.c forward.h forward-inline.h \
 	fragment.c fragment.h \
 	gremlin.c gremlin.h \
-	group.c group.h \
 	helper.c helper.h \
 	init.c init.h \
 	integer.h \
@@ -73,7 +70,6 @@ openvpn_SOURCES = \
 	options.c options.h \
 	otime.c otime.h \
 	packet_id.c packet_id.h \
-        payload.c payload.h payload-inline.h \
 	perf.c perf.h \
 	ping.c ping.h ping-inline.h \
 	plugin.c plugin.h \
@@ -89,12 +85,11 @@ openvpn_SOURCES = \
 	sig.c sig.h \
 	socket.c socket.h \
 	socks.c socks.h \
-	ssl.c ssl.h ssl-x509.h \
+	ssl.c ssl.h \
 	status.c status.h \
 	syshead.h \
 	thread.c thread.h \
-	tun.c tun.h \
-	work.c work.h
+	tun.c tun.h
 
 LDADD = @LIBOBJS@
 
@@ -127,8 +122,7 @@ EXTRA_DIST = \
 	contrib \
 	debug \
 	plugin \
-        management \
-	CHANGES.IPv6 README.IPv6
+        management
 
 dist-hook:
 	cd $(distdir) && for i in $(EXTRA_DIST) ; do find $$i -name CVS -type d -prune -exec rm -r '{}' ';' ; rm -f `find $$i -type f | grep -E '(^|\/)\.?\#|\~$$|\.s?o$$'` ; done

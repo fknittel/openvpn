@@ -73,88 +73,11 @@ tv_to_ms_timeout (const struct timeval *tv)
     return max_int (tv->tv_sec * 1000 + (tv->tv_usec + 500) / 1000, 1);
 }
 
-#ifdef EVENT_SET_OVERRIDE
-
-static inline bool
-esr_override_defined (const struct event_set *es)
-{
-  return es->override && es->override->len > 0;
-}
-
-static struct esr_fixed *
-esr_override_alloc (struct event_set *es)
-{
-  if (!es->override)
-    {
-      ALLOC_OBJ_CLEAR (es->override, struct esr_fixed);
-    }
-  return es->override;
-}
-
-void
-esr_override_free (struct event_set *es)
-{
-  if (es->override)
-    {
-      free (es->override);
-      es->override = NULL;
-    }
-}
-
-static int
-esr_override (struct event_set *es, struct event_set_return *out, int outlen)
-{
-  int i;
-  int count = 0;
-  struct esr_fixed *ef = es->override;
-
-  for (i = 0; i < ef->len; ++i)
-    {
-      if (count < outlen)
-	out[count++] = ef->array[i];
-    }
-  ef->len = 0;
-  return count;
-}
-
-bool
-event_ctl_override (struct event_set *es, const struct event_set_return *esr)
-{
-  struct esr_fixed *ef = esr_override_alloc (es);
-  if (ef->len < ESRF_CAPACITY)
-    {
-      ef->array[ef->len++] = *esr;
-      return true;
-    }
-  return false;
-}
-
-#else
-
-static inline bool
-esr_override_defined (const struct event_set *es)
-{
-  return false;
-}
-
-static inline int
-esr_override (struct event_set *es, struct event_set_return *out, int outlen)
-{
-  return -1;
-}
-
-static inline void
-esr_override_free (struct event_set *es)
-{
-}
-
-#endif
-
 #ifdef WIN32
 
 struct we_set
 {
-  struct event_set evs;
+  struct event_set_functions func;
   bool fast;
   HANDLE *events;
   struct event_set_return *esr;
@@ -271,7 +194,6 @@ static void
 we_free (struct event_set *es)
 {
   struct we_set *wes = (struct we_set *) es;
-  esr_override_free (es);
   free (wes->events);
   free (wes->esr);
   free (wes);
@@ -424,9 +346,6 @@ we_wait (struct event_set *es, const struct timeval *tv, struct event_set_return
 
   dmsg (D_EVENT_WAIT, "WE_WAIT enter n=%d to=%d", wes->n_events, timeout);
 
-  if (esr_override_defined (es))
-    return esr_override (es, out, outlen);
-
 #ifdef ENABLE_DEBUG
   if (check_debug_level (D_EVENT_WAIT)) {
     int i;
@@ -515,11 +434,11 @@ we_init (int *maxevents, unsigned int flags)
   ALLOC_OBJ_CLEAR (wes, struct we_set);
 
   /* set dispatch functions */
-  wes->evs.func.free = we_free;
-  wes->evs.func.reset = we_reset;
-  wes->evs.func.del = we_del;
-  wes->evs.func.ctl = we_ctl;
-  wes->evs.func.wait = we_wait;
+  wes->func.free = we_free;
+  wes->func.reset = we_reset;
+  wes->func.del = we_del;
+  wes->func.ctl = we_ctl;
+  wes->func.wait = we_wait;
 
   if (flags & EVENT_METHOD_FAST)
     wes->fast = true;
@@ -548,7 +467,7 @@ we_init (int *maxevents, unsigned int flags)
 
 struct ep_set
 {
-  struct event_set evs;
+  struct event_set_functions func;
   bool fast;
   int epfd;
   int maxevents;
@@ -559,7 +478,6 @@ static void
 ep_free (struct event_set *es)
 {
   struct ep_set *eps = (struct ep_set *) es;
-  esr_override_free (es);
   close (eps->epfd);
   free (eps->events);
   free (eps);
@@ -623,9 +541,6 @@ ep_wait (struct event_set *es, const struct timeval *tv, struct event_set_return
   struct ep_set *eps = (struct ep_set *) es;
   int stat;
 
-  if (esr_override_defined (es))
-    return esr_override (es, out, outlen);
-
   if (outlen > eps->maxevents)
     outlen = eps->maxevents;
 
@@ -670,11 +585,11 @@ ep_init (int *maxevents, unsigned int flags)
   ALLOC_OBJ_CLEAR (eps, struct ep_set);
 
   /* set dispatch functions */
-  eps->evs.func.free = ep_free;
-  eps->evs.func.reset = ep_reset;
-  eps->evs.func.del = ep_del;
-  eps->evs.func.ctl = ep_ctl;
-  eps->evs.func.wait = ep_wait;
+  eps->func.free = ep_free;
+  eps->func.reset = ep_reset;
+  eps->func.del = ep_del;
+  eps->func.ctl = ep_ctl;
+  eps->func.wait = ep_wait;
 
   /* fast method ("sort of") corresponds to epoll one-shot */
   if (flags & EVENT_METHOD_FAST)
@@ -696,7 +611,7 @@ ep_init (int *maxevents, unsigned int flags)
 
 struct po_set
 {
-  struct event_set evs;
+  struct event_set_functions func;
   bool fast;
   struct pollfd *events;
   void **args;
@@ -708,7 +623,6 @@ static void
 po_free (struct event_set *es)
 {
   struct po_set *pos = (struct po_set *) es;
-  esr_override_free (es);
   free (pos->events);
   free (pos->args);
   free (pos);
@@ -816,9 +730,6 @@ po_wait (struct event_set *es, const struct timeval *tv, struct event_set_return
   struct po_set *pos = (struct po_set *) es;
   int stat;
 
-  if (esr_override_defined (es))
-    return esr_override (es, out, outlen);
-
   stat = poll (pos->events, pos->n_events, tv_to_ms_timeout (tv));
 
   ASSERT (stat <= pos->n_events);
@@ -863,11 +774,11 @@ po_init (int *maxevents, unsigned int flags)
   ALLOC_OBJ_CLEAR (pos, struct po_set);
 
   /* set dispatch functions */
-  pos->evs.func.free = po_free;
-  pos->evs.func.reset = po_reset;
-  pos->evs.func.del = po_del;
-  pos->evs.func.ctl = po_ctl;
-  pos->evs.func.wait = po_wait;
+  pos->func.free = po_free;
+  pos->func.reset = po_reset;
+  pos->func.del = po_del;
+  pos->func.ctl = po_ctl;
+  pos->func.wait = po_wait;
 
   if (flags & EVENT_METHOD_FAST)
     pos->fast = true;
@@ -892,7 +803,7 @@ po_init (int *maxevents, unsigned int flags)
 
 struct se_set
 {
-  struct event_set evs;
+  struct event_set_functions func;
   bool fast;
   fd_set readfds;
   fd_set writefds;
@@ -905,7 +816,6 @@ static void
 se_free (struct event_set *es)
 {
   struct se_set *ses = (struct se_set *) es;
-  esr_override_free (es);
   free (ses->args);
   free (ses);
 }
@@ -1020,9 +930,6 @@ se_wait_fast (struct event_set *es, const struct timeval *tv, struct event_set_r
   struct timeval tv_tmp = *tv;
   int stat;
 
-  if (esr_override_defined (es))
-    return esr_override (es, out, outlen);
-
   dmsg (D_EVENT_WAIT, "SE_WAIT_FAST maxfd=%d tv=%d/%d",
 	ses->maxfd,
 	(int)tv_tmp.tv_sec,
@@ -1045,9 +952,6 @@ se_wait_scalable (struct event_set *es, const struct timeval *tv, struct event_s
   fd_set write = ses->writefds;
   int stat;
 
-  if (esr_override_defined (es))
-    return esr_override (es, out, outlen);
-
   dmsg (D_EVENT_WAIT, "SE_WAIT_SCALEABLE maxfd=%d tv=%d/%d",
 	ses->maxfd, (int)tv_tmp.tv_sec, (int)tv_tmp.tv_usec);
 
@@ -1069,16 +973,16 @@ se_init (int *maxevents, unsigned int flags)
   ALLOC_OBJ_CLEAR (ses, struct se_set);
 
   /* set dispatch functions */
-  ses->evs.func.free = se_free;
-  ses->evs.func.reset = se_reset;
-  ses->evs.func.del = se_del;
-  ses->evs.func.ctl = se_ctl;
-  ses->evs.func.wait = se_wait_scalable;
+  ses->func.free = se_free;
+  ses->func.reset = se_reset;
+  ses->func.del = se_del;
+  ses->func.ctl = se_ctl;
+  ses->func.wait = se_wait_scalable;
 
   if (flags & EVENT_METHOD_FAST)
     {
       ses->fast = true;
-      ses->evs.func.wait = se_wait_fast;
+      ses->func.wait = se_wait_fast;
     }
 
   /* Select needs to be passed this value + 1 */

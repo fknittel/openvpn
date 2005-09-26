@@ -50,7 +50,6 @@
 #include "pool.h"
 #include "helper.h"
 #include "manage.h"
-#include "gremlin.h"
 
 #include "memdbg.h"
 
@@ -73,18 +72,6 @@ const char title_string[] =
 #ifdef USE_PTHREAD
   " [PTHREAD]"
 #endif
-#ifdef ENABLE_IP_PKTINFO
-  " [MH]"
-#endif
-#ifdef USE_PF_INET6
-  " [PF_INET6]"
-#endif
-#ifdef USE_PF_UNIX
-  " [PF_UNIX]"
-#endif
-#ifdef USE_PAYLOAD_CONNTRACK
-  " [PAYLOAD_CONNTRACK]"
-#endif
   " built on " __DATE__
 ;
 
@@ -105,12 +92,6 @@ static const char usage_message[] =
   "--mode m        : Major mode, m = 'p2p' (default, point-to-point) or 'server'.\n"
   "--proto p       : Use protocol p for communicating with peer.\n"
   "                  p = udp (default), tcp-server, or tcp-client\n"
-#ifdef USE_PF_INET6
-  "                  p = udp6, tcp6-server, or tcp6-client (IPv6)\n"
-#endif
-#ifdef USE_PF_UNIX
-  "                  also (experimental) p = unix-dgram\n"
-#endif
   "--connect-retry n : For --proto tcp-client, number of seconds to wait\n"
   "                  between connection retries (default=%d).\n"
 #ifdef ENABLE_HTTP_PROXY
@@ -190,13 +171,7 @@ static const char usage_message[] =
   "--ping-timer-rem: Run the --ping-exit/--ping-restart timer only if we have a\n"
   "                  remote address.\n"
   "--ping n        : Ping remote once every n seconds over TCP/UDP port.\n"
-#if ENABLE_IP_PKTINFO
-  "--multihome     : Configure a multi-homed UDP server.\n"
-#endif
-#if 0 /* ALIGN_OPTIMIZE */
-  "--align-optimize : (experimental) Modify protocol ordering to improve\n"
-  "                   alignment efficiency.  Use on both ends of connection.\n"
-#endif
+  "--fast-io       : (experimental) Optimize TUN/TAP/UDP writes.\n"
   "--remap-usr1 s  : On SIGUSR1 signals, remap signal (s='SIGHUP' or 'SIGTERM').\n"
   "--persist-tun   : Keep tun/tap device open across SIGUSR1 or --ping-restart.\n"
   "--persist-remote-ip : Keep remote IP address across SIGUSR1 or --ping-restart.\n"
@@ -226,10 +201,6 @@ static const char usage_message[] =
 #endif
   "--mssfix [n]    : Set upper bound on TCP MSS, default = tun-mtu size\n"
   "                  or --fragment max value, whichever is lower.\n"
-#if USE_PAYLOAD_CONNTRACK
-  "--tcp-retrans n : Drop TCP retransmissions for n seconds time span max\n"
-  "                  (eg. n=60), useful for reliable links.\n"
-#endif
   "--sndbuf size   : Set the TCP/UDP send buffer size.\n"
   "--rcvbuf size   : Set the TCP/UDP receive buffer size.\n"
   "--txqueuelen n  : Set the tun/tap TX queue length to n (Linux only).\n"
@@ -263,8 +234,12 @@ static const char usage_message[] =
   "--suppress-timestamps : Don't log timestamps to stdout/stderr.\n"
   "--writepid file : Write main process ID to file.\n"
   "--nice n        : Change process priority (>0 = lower, <0 = higher).\n"
+#if 0
 #ifdef USE_PTHREAD
-  "--threads n     : Use n threads.\n"
+  "--nice-work n   : Change thread priority of work thread.  The work\n"
+  "                  thread is used for background processing such as\n"
+  "                  RSA key number crunching.\n"
+#endif
 #endif
   "--echo [parms ...] : Echo parameters to log output.\n"
   "--verb n        : Set output verbosity to n (default=%d):\n"
@@ -286,8 +261,7 @@ static const char usage_message[] =
   "--disable-occ   : Disable options consistency check between peers.\n"
 #endif
 #ifdef ENABLE_DEBUG
-  "--gremlin [opt...]  : Special stress testing mode (for debugging only).\n"
-  "                  Examples: cflood/7 pflood/3 corrupt/3 updown/3 drop/3\n"
+  "--gremlin mask  : Special stress testing mode (for debugging only).\n"
 #endif
 #ifdef USE_LZO
   "--comp-lzo      : Use fast LZO compression -- may add up to 1 byte per\n"
@@ -563,9 +537,6 @@ init_options (struct options *o)
   o->link_mtu = LINK_MTU_DEFAULT;
   o->mtu_discover_type = -1;
   o->mssfix = MSSFIX_DEFAULT;
-#if USE_PAYLOAD_CONNTRACK
-  o->tcp_retrans = 0;
-#endif
   o->route_delay_window = 30;
   o->resolve_retry_seconds = RESOLV_RETRY_INFINITE;
 #ifdef ENABLE_OCC
@@ -927,21 +898,6 @@ show_http_proxy_options (const struct http_proxy_options *o)
 }
 #endif
 
-#if GROUPS && defined(ENABLE_DEBUG)
-
-static void
-show_group_options (const struct options *o)
-{
-  if (o->group_info)
-    {
-      struct status_output *so = status_open (NULL, 0, D_SHOW_PARMS, NULL, 0);
-      group_info_print (o->group_info, "  ", so);
-      status_close (so);
-    }
-}
-
-#endif
-
 void
 options_detach (struct options *o)
 {
@@ -1048,9 +1004,6 @@ show_settings (const struct options *o)
   SHOW_BOOL (persist_key);
 
   SHOW_INT (mssfix);
-#if USE_PAYLOAD_CONNTRACK
-  SHOW_INT (tcp_retrans);
-#endif
   
 #if PASSTOS_CAPABILITY
   SHOW_BOOL (passtos);
@@ -1089,10 +1042,6 @@ show_settings (const struct options *o)
   SHOW_INT (rcvbuf);
   SHOW_INT (sndbuf);
 
-#if ENABLE_IP_PKTINFO
-  SHOW_BOOL (multihome);
-#endif
-
 #ifdef ENABLE_HTTP_PROXY
   if (o->http_proxy_options)
     show_http_proxy_options (o->http_proxy_options);
@@ -1104,9 +1053,7 @@ show_settings (const struct options *o)
   SHOW_BOOL (socks_proxy_retry);
 #endif
 
-#if 0 /* ALIGN_OPTIMIZE */
-  SHOW_BOOL (align_optimize);
-#endif
+  SHOW_BOOL (fast_io);
 
 #ifdef USE_LZO
   SHOW_BOOL (comp_lzo);
@@ -1196,12 +1143,7 @@ show_settings (const struct options *o)
   SHOW_INT (route_method);
   show_tuntap_options (&o->tuntap_options);
 #endif
-
-#if GROUPS
-  show_group_options (o);
 #endif
-
-#endif /* ENABLE_DEBUG */
 }
 
 #undef SHOW_PARM
@@ -1222,17 +1164,6 @@ init_http_options_if_undefined (struct options *o)
       o->http_proxy_options->http_version = "1.0";
     }
   return o->http_proxy_options;
-}
-
-#endif
-
-#if GROUPS
-
-void
-group_init_if_uninitialized (struct options *o)
-{
-  if (!o->group_info)
-    o->group_info = group_info_new (&o->gc);
 }
 
 #endif
@@ -1278,14 +1209,6 @@ options_postprocess (struct options *options, bool first_time)
 	    e->port = options->remote_port;
 	}
     }
-
-#if GROUPS
-  /*
-   * Compile group inheritance graph
-   */
-  if (options->group_info)
-    group_inherit_compile (options->group_info, &options->gc);
-#endif
 
   /*
    * If --mssfix is supplied without a parameter, default
@@ -1338,7 +1261,7 @@ options_postprocess (struct options *options, bool first_time)
    * Sanity check on TCP mode options
    */
 
-  if (options->connect_retry_defined && options->proto != PROTO_TCPv4_CLIENT && options->proto != PROTO_TCPv6_CLIENT)
+  if (options->connect_retry_defined && options->proto != PROTO_TCPv4_CLIENT)
     msg (M_USAGE, "--connect-retry doesn't make sense unless also used with --proto tcp-client");
 
   /*
@@ -1348,8 +1271,8 @@ options_postprocess (struct options *options, bool first_time)
     msg (M_USAGE, "only one of --tun-mtu or --link-mtu may be defined (note that --ifconfig implies --link-mtu %d)", LINK_MTU_DEFAULT);
 
 #ifdef ENABLE_OCC
-  if (!proto_is_udp(options->proto) && options->mtu_test)
-    msg (M_USAGE, "Options error: --mtu-test only makes sense with --proto udp or --proto udp6");
+  if (options->proto != PROTO_UDPv4 && options->mtu_test)
+    msg (M_USAGE, "--mtu-test only makes sense with --proto udp");
 #endif
 
   /*
@@ -1393,8 +1316,7 @@ options_postprocess (struct options *options, bool first_time)
 	  const char *remote = l->array[i].hostname;
 	  const int remote_port = l->array[i].port;
 
-	  if (proto_is_net(options->proto)
-	      && string_defined_equal (options->local, remote)
+	  if (string_defined_equal (options->local, remote)
 	      && options->local_port == remote_port)
 	    msg (M_USAGE, "--remote and --local addresses are the same");
 	
@@ -1461,18 +1383,16 @@ options_postprocess (struct options *options, bool first_time)
    */
 
 #ifdef ENABLE_FRAGMENT
-  if (!proto_is_udp(options->proto) && options->fragment)
-    msg (M_USAGE, "--fragment can only be used with --proto udp or --proto udp6");
+  if (options->proto != PROTO_UDPv4 && options->fragment)
+    msg (M_USAGE, "--fragment can only be used with --proto udp");
 #endif
-  if (!proto_is_net(options->proto) && !options->local)
-    msg (M_USAGE, "--local MUST be specified with --proto unix-dgram or --proto unix-stream");
 
 #ifdef ENABLE_OCC
-  if (!proto_is_udp(options->proto) && options->explicit_exit_notification)
+  if (options->proto != PROTO_UDPv4 && options->explicit_exit_notification)
     msg (M_USAGE, "--explicit-exit-notify can only be used with --proto udp");
 #endif
 
-  if (!options->remote_list && (options->proto == PROTO_TCPv4_CLIENT||options->proto== PROTO_TCPv6_CLIENT))
+  if (!options->remote_list && options->proto == PROTO_TCPv4_CLIENT)
     msg (M_USAGE, "--remote MUST be used in TCP Client mode");
 
 #ifdef ENABLE_HTTP_PROXY
@@ -1490,7 +1410,7 @@ options_postprocess (struct options *options, bool first_time)
     msg (M_USAGE, "--socks-proxy can not be used in TCP Server mode");
 #endif
 
-  if ((options->proto == PROTO_TCPv4_SERVER||options->proto == PROTO_TCPv6_SERVER) && remote_list_len (options->remote_list) > 1)
+  if (options->proto == PROTO_TCPv4_SERVER && remote_list_len (options->remote_list) > 1)
     msg (M_USAGE, "TCP server mode allows at most one --remote address");
 
 #if P2MP_SERVER
@@ -1515,8 +1435,8 @@ options_postprocess (struct options *options, bool first_time)
 	msg (M_USAGE, "--mode server only works with --dev tun or --dev tap");
       if (options->pull)
 	msg (M_USAGE, "--pull cannot be used with --mode server");
-      if (!(proto_is_udp(options->proto) || options->proto == PROTO_TCPv4_SERVER || options->proto == PROTO_TCPv6_SERVER || options->proto == PROTO_UNIX_DGRAM))
-	msg (M_USAGE, "--mode server currently only supports --proto udp or --proto tcp-server (also udp6/tcp6)");
+      if (!(options->proto == PROTO_UDPv4 || options->proto == PROTO_TCPv4_SERVER))
+	msg (M_USAGE, "--mode server currently only supports --proto udp or --proto tcp-server");
       if (!options->tls_server)
 	msg (M_USAGE, "--mode server requires --tls-server");
       if (options->remote_list)
@@ -1539,9 +1459,9 @@ options_postprocess (struct options *options, bool first_time)
 	msg (M_USAGE, "--inetd cannot be used with --mode server");
       if (options->ipchange)
 	msg (M_USAGE, "--ipchange cannot be used with --mode server (use --client-connect instead)");
-      if (!(proto_is_dgram(options->proto) || options->proto == PROTO_TCPv4_SERVER || options->proto == PROTO_TCPv6_SERVER ))
-	msg (M_USAGE, "--mode server currently only supports --proto udp or --proto tcp-server (also udp6/tcp6)");
-      if (!proto_is_udp(options->proto) && (options->cf_max || options->cf_per))
+      if (!(options->proto == PROTO_UDPv4 || options->proto == PROTO_TCPv4_SERVER))
+	msg (M_USAGE, "--mode server currently only supports --proto udp or --proto tcp-server");
+      if (options->proto != PROTO_UDPv4 && (options->cf_max || options->cf_per))
 	msg (M_USAGE, "--connect-freq only works with --mode server --proto udp.  Try --max-clients instead.");
       if (dev != DEV_TYPE_TAP && options->ifconfig_pool_netmask)
 	msg (M_USAGE, "The third parameter to --ifconfig-pool (netmask) is only valid in --dev tap mode");
@@ -1607,10 +1527,6 @@ options_postprocess (struct options *options, bool first_time)
 	msg (M_USAGE, "--auth-user-pass-verify requires --mode server");
       if (options->ifconfig_pool_linear)
 	msg (M_USAGE, "--ifconfig-pool-linear requires --mode server");
-#if GROUPS
-      if (options->group_info)
-	msg (M_USAGE, "--group directives require --mode server");      
-#endif
     }
 #endif /* P2MP_SERVER */
 
@@ -1619,7 +1535,7 @@ options_postprocess (struct options *options, bool first_time)
   /*
    * Check consistency of replay options
    */
-  if ((!proto_is_udp(options->proto))
+  if ((options->proto != PROTO_UDPv4)
       && (options->replay_window != defaults.replay_window
 	  || options->replay_time != defaults.replay_time))
     msg (M_USAGE, "--replay-window only makes sense with --proto udp");
@@ -1748,7 +1664,7 @@ options_postprocess (struct options *options, bool first_time)
    */
   if (options->pull
       && options->ping_rec_timeout_action == PING_UNDEF
-      && proto_is_udp(options->proto))
+      && options->proto == PROTO_UDPv4)
     {
       options->ping_rec_timeout = PRE_PULL_INITIAL_PING_RESTART;
       options->ping_rec_timeout_action = PING_RESTART;
@@ -2029,7 +1945,7 @@ options_warning_extract_parm1 (const char *option_string,
 			       struct gc_arena *gc_ret)
 {
   struct gc_arena gc = gc_new ();
-  struct buffer b = string_alloc_buf (option_string, 0, &gc);
+  struct buffer b = string_alloc_buf (option_string, &gc);
   char *p = gc_malloc (OPTION_PARM_SIZE, false, &gc);
   const char *ret;
   
@@ -2983,22 +2899,7 @@ add_option (struct options *options,
     {
       ++i;
       VERIFY_PERMISSION (OPT_P_GENERAL);
-      if (isalpha (p[1][0]))
-	{
-	  int j;
-	  for (j = 1; j < MAX_PARMS; ++j)
-	    {
-	      const char *gparm = p[j];
-	      if (!gparm)
-		break;
-	      ++i;
-	      options->gremlin |= gremlin_parse_option (gparm, msglevel);
-	    }
-	}
-      else
-	{
-	  options->gremlin = positive_atoi (p[1]);
-	}
+      options->gremlin = positive_atoi (p[1]);
     }
 #endif
   else if (streq (p[0], "chroot") && p[1])
@@ -3163,13 +3064,6 @@ add_option (struct options *options,
       VERIFY_PERMISSION (OPT_P_GENERAL);
       options->mlock = true;
     }
-#if ENABLE_IP_PKTINFO
-  else if (streq (p[0], "multihome"))
-    {
-      VERIFY_PERMISSION (OPT_P_GENERAL);
-      options->multihome = true;
-    }
-#endif
   else if (streq (p[0], "verb") && p[1])
     {
       ++i;
@@ -3299,10 +3193,25 @@ add_option (struct options *options,
 #endif
     }
 #ifdef USE_PTHREAD
-  else if (streq (p[0], "threads"))
+  else if (streq (p[0], "nice-work") && p[1])
     {
+      ++i;
+      VERIFY_PERMISSION (OPT_P_NICE);
+      options->nice_work = atoi (p[1]);
+    }
+  else if (streq (p[0], "threads") && p[1])
+    {
+      int n_threads;
+
+      ++i;
       VERIFY_PERMISSION (OPT_P_GENERAL);
-      options->n_threads = positive_atoi (p[1]);
+      n_threads = positive_atoi (p[1]);
+      if (n_threads < 1)
+	{
+	  msg (msglevel, "--threads parameter must be at least 1");
+	  goto err;
+	}
+      options->n_threads = n_threads;
     }
 #endif
   else if (streq (p[0], "shaper") && p[1])
@@ -3380,14 +3289,8 @@ add_option (struct options *options,
   else if (streq (p[0], "fast-io"))
     {
       VERIFY_PERMISSION (OPT_P_GENERAL);
+      options->fast_io = true;
     }
-#if 0 /* ALIGN_OPTIMIZE */
-  else if (streq (p[0], "align-optimize"))
-    {
-      VERIFY_PERMISSION (OPT_P_GENERAL);
-      options->align_optimize = true;
-    }
-#endif
   else if (streq (p[0], "inactive") && p[1])
     {
       ++i;
@@ -3672,14 +3575,6 @@ add_option (struct options *options,
 	options->mssfix_default = true;
 
     }
-#if USE_PAYLOAD_CONNTRACK
-  else if (streq (p[0], "tcp-retrans") && p[1])
-    {
-      ++i;
-      VERIFY_PERMISSION (OPT_P_GENERAL);
-      options->tcp_retrans = positive_atoi (p[1]);
-    }
-#endif
 #ifdef ENABLE_OCC
   else if (streq (p[0], "disable-occ"))
     {
@@ -4639,51 +4534,6 @@ add_option (struct options *options,
     }
 #endif /* USE_SSL */
 #endif /* USE_CRYPTO */
-#if GROUPS
-  else if (streq (p[0], "group-ip-pool") && p[1] && p[2] && p[3])
-    {
-      i += 3;
-      VERIFY_PERMISSION (OPT_P_GENERAL);
-      group_init_if_uninitialized (options);
-      group_ip_pool (options->group_info, &options->gc, msglevel, p[1], p[2], p[3]);
-    }
-  else if (streq (p[0], "group-by-x509") && p[1])
-    {
-      i += (string_array_len (p) - 1);
-      VERIFY_PERMISSION (OPT_P_GENERAL);
-      group_init_if_uninitialized (options);
-      group_by_x509 (options->group_info, &options->gc, msglevel, p[1], &p[2]);
-    }
-  else if (streq (p[0], "group") && p[1]) /* JYFIXME -- name clash! */
-    {
-      ++i;
-      VERIFY_PERMISSION (OPT_P_GROUP);
-      if (options->group_info)
-	;
-      else if (permission_mask & OPT_P_INSTANCE)
-	{
-	  msg (msglevel, "WARNING: no groups have been defined, client instance group directive will be ignored");
-	  goto err;
-	}
-      else
-	group_init_if_uninitialized (options);
-      group_default (options->group_info, &options->gc, msglevel, p[1]);
-    }
-  else if (streq (p[0], "group-acl-enable"))
-    {
-      i += (string_array_len (p) - 1);
-      VERIFY_PERMISSION (OPT_P_GENERAL);
-      group_init_if_uninitialized (options);
-      group_acl_enable (options->group_info, &options->gc, msglevel, &p[1]);
-    }
-  else if (streq (p[0], "group-acl") && p[1])
-    {
-      i += (string_array_len (p) - 1);
-      VERIFY_PERMISSION (OPT_P_GENERAL);
-      group_init_if_uninitialized (options);
-      group_acl (options->group_info, &options->gc, msglevel, p[1], &p[2]);
-    }
-#endif /* GROUPS */
 #ifdef TUNSETPERSIST
   else if (streq (p[0], "rmtun"))
     {

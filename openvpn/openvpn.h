@@ -46,11 +46,6 @@
 #include "pool.h"
 #include "plugin.h"
 #include "manage.h"
-#include "work.h"
-
-#ifdef USE_PAYLOAD_CONNTRACK
-#include "payload.h"
-#endif
 
 /*
  * Our global key schedules, packaged thusly
@@ -164,7 +159,7 @@ struct context_1
   /* shared object plugins */
   struct plugin_list *plugins;
   bool plugins_owned;
-
+  
 #if P2MP
 
 #if P2MP_SERVER
@@ -179,14 +174,6 @@ struct context_1
   /* save user/pass for authentication */
   struct user_pass *auth_user_pass;
 #endif
-
-#if 0
-#ifdef USE_PTHREAD
-  struct work_thread *work_thread;
-  bool work_thread_owned;
-#endif
-#endif
-
 };
 
 /*
@@ -203,38 +190,27 @@ struct context_2
   int event_set_max;
   bool event_set_owned;
 
-  /* basic i/o event flags returned by io_wait */
-# define SOCKET_READ        (1<<0)
-# define SOCKET_WRITE       (1<<1)
-# define TUN_READ           (1<<2)
-# define TUN_WRITE          (1<<3)
-
-  /* note that flags interact with IOW_ flags in openvpn.h */
-# define ST_RW_MASK (SOCKET_READ|SOCKET_WRITE|TUN_READ|TUN_WRITE)
-
-  /* extended i/o event flags returned by io_wait */
-# define ES_ERROR           (1<<4)
-# define ES_TIMEOUT         (1<<5)
+  /* event flags returned by io_wait */
+# define SOCKET_READ       (1<<0)
+# define SOCKET_WRITE      (1<<1)
+# define TUN_READ          (1<<2)
+# define TUN_WRITE         (1<<3)
+# define ES_ERROR          (1<<4)
+# define ES_TIMEOUT        (1<<5)
 # ifdef ENABLE_MANAGEMENT
-#  define MANAGEMENT_READ   (1<<6)
-#  define MANAGEMENT_WRITE  (1<<7)
+#  define MANAGEMENT_READ  (1<<6)
+#  define MANAGEMENT_WRITE (1<<7)
 # endif
 
   unsigned int event_set_status;
 
-#ifdef FAST_IO
-  unsigned int event_set_status_hint;
-#endif
-
-  unsigned int default_iow_flags;
-
-  struct link_socket *link_socket;	      /* socket used for TCP/UDP connection to remote */
+  struct link_socket *link_socket;	 /* socket used for TCP/UDP connection to remote */
   bool link_socket_owned;
   struct link_socket_info *link_socket_info;
-  const struct link_socket *accept_from;      /* possibly do accept() on a parent link_socket */
+  const struct link_socket *accept_from; /* possibly do accept() on a parent link_socket */
 
-  struct openvpn_sockaddr *to_link_addr;      /* IP address of remote */
-  struct openvpn_sockaddr from_addr;          /* address of incoming datagram */
+  struct sockaddr_in to_link_addr;	 /* IP address of remote */
+  struct sockaddr_in from;               /* address of incoming datagram */
 
   /* MTU frame parameters */
   struct frame frame;
@@ -407,12 +383,11 @@ struct context_2
   struct event_timeout explicit_exit_notification_interval;
 #endif
 
-#if GROUPS
-  struct group_context group_context;
-#endif
-
   /* environmental variables to pass to scripts */
   struct env_set *es;
+
+  /* don't wait for TUN/TAP/UDP to be ready to accept write */
+  bool fast_io;
 
 #if P2MP
 
@@ -430,17 +405,13 @@ struct context_2
 # define CAS_PARTIAL   3 /* at least one client-connect script/plugin
 			    succeeded while a later one in the chain failed */
   int context_auth;
-#endif /* P2MP_SERVER */
+#endif
 
   struct event_timeout push_request_interval;
   const char *pulled_options_string;
 
   struct event_timeout scheduled_exit;
 
-#endif /* P2MP */
-
-#ifdef USE_PAYLOAD_CONNTRACK
-  struct payload_context *payload_context;
 #endif
 };
 
