@@ -64,6 +64,18 @@ struct openvpn_ethhdr
   uint16_t proto;                     /* packet type ID field */
 };
 
+# define OPENVPN_ETH_P_8021Q  0x8100  /* 802.1Q protocol */
+
+struct openvpn_8021qhdr
+{
+  uint8_t dest[OPENVPN_ETH_ALEN];     /* destination ethernet addr */
+  uint8_t source[OPENVPN_ETH_ALEN];   /* source ethernet addr	*/
+
+  uint32_t tag;                       /* packet 802.1Q Vlan Tag */
+  uint16_t proto;                     /* packet type ID field */
+};
+
+
 struct openvpn_arp {
 # define ARP_MAC_ADDR_TYPE 0x0001
   uint16_t mac_addr_type;       /* 0x0001 */
