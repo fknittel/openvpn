@@ -84,7 +84,7 @@ mroute_get_in_addr_t (struct mroute_addr *ma, const in_addr_t src, unsigned int 
       ma->type = MR_ADDR_IPV4 | mask;
       ma->netbits = 0;
       ma->len = 4;
-      *(in_addr_t*)ma->addr = src;
+      ma->in_addr = src;
     }
 }
 
@@ -256,10 +256,10 @@ bool mroute_extract_openvpn_sockaddr (struct mroute_addr *addr,
 void
 mroute_addr_mask_host_bits (struct mroute_addr *ma)
 {
-  in_addr_t addr = ntohl(*(in_addr_t*)ma->addr);
+  in_addr_t addr = ntohl (ma->in_addr);
   ASSERT ((ma->type & MR_ADDR_MASK) == MR_ADDR_IPV4);
   addr &= netbits_to_netmask (ma->netbits);
-  *(in_addr_t*)ma->addr = htonl (addr);
+  ma->in_addr = htonl (addr);
 }
 
 /*

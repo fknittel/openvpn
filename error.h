@@ -174,9 +174,7 @@ bool dont_mute (unsigned int flags); /* check muting filter */
 #endif
 
 void x_msg (const unsigned int flags, const char *format, ...)
-#ifdef __GNUC__
     __attribute__ ((format (printf, 2, 3)))
-#endif
     ; /* should be called via msg above */
 
 /*
@@ -208,7 +206,8 @@ FILE *msg_fp(const unsigned int flags);
 /* Fatal logic errors */
 #define ASSERT(x) do { if (!(x)) assert_failed(__FILE__, __LINE__); } while (false)
 
-void assert_failed (const char *filename, int line);
+void assert_failed (const char *filename, int line)
+    __attribute__ ((noreturn));
 
 #ifdef ENABLE_DEBUG
 void crash (void); /* force a segfault (debugging only) */
@@ -239,7 +238,10 @@ HANDLE get_orig_stderr (void);
 #endif
 
 /* exit program */
-void openvpn_exit (const int status);
+void openvpn_exit (const int status)
+#ifdef __GNUC__
+    __attribute__ ((noreturn));
+#endif
 
 /*
  * Check the return status of read/write routines.
