@@ -509,6 +509,8 @@ struct options
   bool show_net_up;
   int route_method;
 #endif
+
+  bool vlan_tagging;
 };
 
 #define streq(x, y) (!strcmp((x), (y)))
