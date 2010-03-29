@@ -127,6 +127,8 @@ struct tuntap
 # define TUNNEL_TOPOLOGY(tt) ((tt) ? ((tt)->topology) : TOP_UNDEF)
   int topology; /* one of the TOP_x values */
 
+  bool vlan_tagging;
+
   bool did_ifconfig_setup;
   bool did_ifconfig;
 
@@ -217,6 +219,7 @@ struct tuntap *init_tun (const char *dev,       /* --dev option */
 			 int topology,          /* one of the TOP_x values */
 			 const char *ifconfig_local_parm,          /* --ifconfig parm 1 */
 			 const char *ifconfig_remote_netmask_parm, /* --ifconfig parm 2 */
+			 const bool vlan_tagging, /* --vlan-tagging option */
 			 in_addr_t local_public,
 			 in_addr_t remote_public,
 			 const bool strict_warn,
