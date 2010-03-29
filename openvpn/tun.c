@@ -314,6 +314,8 @@ warn_on_use_of_common_subnets (void)
  * Complain if --dev tap and --ifconfig is used on an OS for which
  * we don't have a custom tap ifconfig template below.
  */
+static void no_tap_ifconfig ()
+    __attribute__ ((unused));
 static void
 no_tap_ifconfig ()
 {

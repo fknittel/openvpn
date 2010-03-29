@@ -2787,6 +2787,8 @@ positive_atoi (const char *str)
   return i < 0 ? 0 : i;
 }
 
+static unsigned int atou (const char *str)
+    __attribute__ ((unused));
 static unsigned int
 atou (const char *str)
 {
