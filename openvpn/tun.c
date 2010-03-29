@@ -422,6 +422,7 @@ init_tun (const char *dev,       /* --dev option */
 	  int topology,          /* one of the TOP_x values */
 	  const char *ifconfig_local_parm,          /* --ifconfig parm 1 */
 	  const char *ifconfig_remote_netmask_parm, /* --ifconfig parm 2 */
+	  const bool vlan_tagging, /* --vlan-tagging option */
 	  in_addr_t local_public,
 	  in_addr_t remote_public,
 	  const bool strict_warn,
@@ -435,6 +436,7 @@ init_tun (const char *dev,       /* --dev option */
 
   tt->type = dev_type_enum (dev, dev_type);
   tt->topology = topology;
+  tt->vlan_tagging = vlan_tagging;
 
   if (ifconfig_local_parm && ifconfig_remote_netmask_parm)
     {
