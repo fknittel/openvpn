@@ -126,6 +126,16 @@ struct remote_list
 
 #endif
 
+#ifdef ENABLE_VLAN_TAGGING
+enum vlan_acceptable_frames
+{
+  VAF_RAW = 0,
+  VAF_ONLY_VLAN_TAGGED,
+  VAF_ONLY_UNTAGGED_OR_PRIORITY,
+  VAF_ALL,
+};
+#endif
+
 /* Command line options */
 struct options
 {
@@ -508,6 +518,10 @@ struct options
   bool exit_event_initial_state;
   bool show_net_up;
   int route_method;
+#endif
+
+#ifdef ENABLE_VLAN_TAGGING
+  enum vlan_acceptable_frames vlan_accept;
 #endif
 };
 
