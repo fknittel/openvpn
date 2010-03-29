@@ -1177,7 +1177,7 @@ show_settings (const struct options *o)
   SHOW_BOOL (ifconfig_noexec);
   SHOW_BOOL (ifconfig_nowarn);
 
-  SHOW_BOOL (vlan_tagging)
+  SHOW_BOOL (vlan_tagging);
 
 #ifdef HAVE_GETTIMEOFDAY
   SHOW_INT (shaper);
