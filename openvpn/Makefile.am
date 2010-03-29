@@ -138,8 +138,7 @@ openvpn_SOURCES = \
 	thread.c thread.h \
 	tun.c tun.h \
 	win32.h win32.c \
-	cryptoapi.h cryptoapi.c \
-	crc32.c crc32.h
+	cryptoapi.h cryptoapi.c
 
 
 dist-hook:
