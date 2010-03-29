@@ -420,6 +420,9 @@ static const char usage_message[] =
   "--port-share host port : When run in TCP mode, proxy incoming HTTPS sessions\n"
   "                  to a web server at host:port.\n"
 #endif
+#ifdef ENABLE_VLAN_TAGGING
+  "--vlan-tagging  : Enable VLAN tagging/untagging to/from TAP device.\n"
+#endif
 #endif
   "\n"
   "Client options (when connecting to a multi-client server):\n"
@@ -1175,6 +1178,10 @@ show_settings (const struct options *o)
   SHOW_BOOL (ifconfig_noexec);
   SHOW_BOOL (ifconfig_nowarn);
 
+#ifdef ENABLE_VLAN_TAGGING
+  SHOW_BOOL (vlan_tagging);
+#endif
+
 #ifdef HAVE_GETTIMEOFDAY
   SHOW_INT (shaper);
 #endif
@@ -1742,6 +1749,10 @@ options_postprocess_verify_ce (const struct options *options, const struct conne
 
 	if ((options->ssl_flags & SSLF_NO_NAME_REMAPPING) && script_method == SM_SYSTEM)
 	  msg (M_USAGE, "--script-security method='system' cannot be combined with --no-name-remapping");
+#ifdef ENABLE_VLAN_TAGGING
+      if (options->vlan_tagging && dev != DEV_TYPE_TAP)
+	msg (M_USAGE, "--vlan-tagging only works with --dev tap");
+#endif
     }
   else
     {
@@ -1788,7 +1799,10 @@ options_postprocess_verify_ce (const struct options *options, const struct conne
       if (options->port_share_host || options->port_share_port)
 	msg (M_USAGE, "--port-share requires TCP server mode (--mode server --proto tcp-server)");
 #endif
-
+#ifdef ENABLE_VLAN_TAGGING
+      if (options->vlan_tagging)
+	msg (M_USAGE, "--vlan-tagging requires --mode server");
+#endif
     }
 #endif /* P2MP_SERVER */
 
@@ -5728,6 +5742,13 @@ add_option (struct options *options,
       VERIFY_PERMISSION (OPT_P_GENERAL);
       options->persist_config = true;
       options->persist_mode = 1;
+    }
+#endif
+#ifdef ENABLE_VLAN_TAGGING
+  else if (streq (p[0], "vlan-tagging"))
+    {
+      VERIFY_PERMISSION (OPT_P_GENERAL);
+      options->vlan_tagging = true;
     }
 #endif
   else
