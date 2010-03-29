@@ -290,6 +290,4 @@ perf_print_state (int lev)
   gc_free (&gc);
 }
 
-#else
-static void dummy(void) {}
 #endif

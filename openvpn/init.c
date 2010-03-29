@@ -3278,6 +3278,7 @@ close_context (struct context *c, int sig, unsigned int flags)
 
 #ifdef USE_CRYPTO
 
+static void test_malloc (void) __attribute__ ((unused));
 static void
 test_malloc (void)
 {
