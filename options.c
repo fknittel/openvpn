@@ -651,6 +651,8 @@ static const char usage_message[] =
   "--show-pkcs11-ids provider [cert_private] : Show PKCS#11 available ids.\n" 
   "                                            --verb option can be added *BEFORE* this.\n"
 #endif				/* ENABLE_PKCS11 */
+  "\n"
+  "--vlan-tagging  : Enable VLAN tagging/untagging to/from TAP device.\n"
  ;
 
 #endif /* !ENABLE_SMALL */
@@ -1174,6 +1176,8 @@ show_settings (const struct options *o)
   SHOW_STR (ifconfig_remote_netmask);
   SHOW_BOOL (ifconfig_noexec);
   SHOW_BOOL (ifconfig_nowarn);
+
+  SHOW_BOOL (vlan_tagging);
 
 #ifdef HAVE_GETTIMEOFDAY
   SHOW_INT (shaper);
@@ -1788,6 +1792,8 @@ options_postprocess_verify_ce (const struct options *options, const struct conne
       if (options->port_share_host || options->port_share_port)
 	msg (M_USAGE, "--port-share requires TCP server mode (--mode server --proto tcp-server)");
 #endif
+      if (options->vlan_tagging)
+	msg (M_USAGE, "--vlan-tagging requires --mode server");
 
     }
 #endif /* P2MP_SERVER */
@@ -5737,6 +5743,11 @@ add_option (struct options *options,
       options->persist_mode = 1;
     }
 #endif
+  else if (streq (p[0], "vlan-tagging"))
+    {
+      VERIFY_PERMISSION (OPT_P_GENERAL);
+      options->vlan_tagging = true;
+    }
   else
     {
       if (file)
