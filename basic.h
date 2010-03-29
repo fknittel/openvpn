@@ -46,4 +46,8 @@
 /* clear an object */
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
+#ifndef __GNUC__
+#  define __attribute__(x) /* nothing */
+#endif
+
 #endif

@@ -469,6 +469,4 @@ int SSL_CTX_use_CryptoAPI_certificate(SSL_CTX *ssl_ctx, const char *cert_prop)
     return 0;
 }
 
-#else
-static void dummy (void) {}
 #endif				/* WIN32 */

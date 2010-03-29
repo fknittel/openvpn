@@ -59,6 +59,8 @@ print_bypass_addresses (const struct route_bypass *rb)
 
 #endif
 
+static bool add_bypass_address (struct route_bypass *rb, const in_addr_t a)
+    __attribute__ ((unused));
 static bool
 add_bypass_address (struct route_bypass *rb, const in_addr_t a)
 {

@@ -151,6 +151,4 @@ openvpn_thread_cleanup ()
     }
 }
 
-#else
-static void dummy(void) {}
 #endif

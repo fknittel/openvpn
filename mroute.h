@@ -79,7 +79,10 @@ struct mroute_addr {
   uint8_t type;     /* MR_ADDR/MR_WITH flags */
   uint8_t netbits;  /* number of bits in network part of address,
 		       valid if MR_WITH_NETBITS is set */
-  uint8_t addr[MR_MAX_ADDR_LEN];  /* actual address */
+  union {
+    uint8_t addr[MR_MAX_ADDR_LEN];  /* actual address */
+    in_addr_t in_addr;
+  };
 };
 
 /*
@@ -202,14 +205,14 @@ mroute_extract_in_addr_t (struct mroute_addr *dest, const in_addr_t src)
   dest->type = MR_ADDR_IPV4;
   dest->netbits = 0;
   dest->len = 4;
-  *(in_addr_t*)dest->addr = htonl (src);
+  dest->in_addr = htonl (src);
 }
 
 static inline in_addr_t
 in_addr_t_from_mroute_addr (const struct mroute_addr *addr)
 {
   if ((addr->type & MR_ADDR_MASK) == MR_ADDR_IPV4 && addr->netbits == 0 && addr->len == 4)
-    return ntohl(*(in_addr_t*)addr->addr);
+    return ntohl (addr->in_addr);
   else
     return 0;
 }

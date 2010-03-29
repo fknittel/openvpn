@@ -140,6 +140,4 @@ LPCTSTR getIeHttpProxy()
   }
 }
 
-#else
-static void dummy (void) {}
 #endif				/* WIN32 */
