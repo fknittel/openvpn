@@ -405,6 +405,9 @@ multi_get_timeout (struct multi_context *m, struct timeval *dest)
 static inline bool
 multi_process_outgoing_tun (struct multi_context *m, const unsigned int mpp_flags)
 {
+#ifdef ENABLE_VLAN_TAGGING
+  void multi_prepend_vlan_tag (const struct context *c, struct buffer *buf);
+#endif
   struct multi_instance *mi = m->pending;
   bool ret = true;
 
@@ -415,6 +418,26 @@ multi_process_outgoing_tun (struct multi_context *m, const unsigned int mpp_flag
 	  mi->context.c2.to_tun.len);
 #endif
   set_prefix (mi);
+#ifdef ENABLE_VLAN_TAGGING
+  if (m->top.options.vlan_accept == VAF_ONLY_UNTAGGED_OR_PRIORITY)
+    {
+      /* Packets aren't tagged on the tap device. */
+
+      if (m->top.options.vlan_pvid != mi->context.options.vlan_pvid)
+	{
+	  /* Packet is coming from the wrong VID, drop it. */
+	  mi->context.c2.to_tun.len = 0;
+	}
+    }
+  else if (m->top.options.vlan_accept == VAF_ONLY_VLAN_TAGGED ||
+	   (m->top.options.vlan_accept == VAF_ALL &&
+	    m->top.options.vlan_pvid != mi->context.options.vlan_pvid))
+    {
+      /* Packets need to be tagged.  Either because all packets are tagged or
+         because the vid matches the port's pvid. */
+      multi_prepend_vlan_tag (&mi->context, &mi->context.c2.to_tun);
+    }
+#endif
   process_outgoing_tun (&mi->context);
   ret = multi_process_post (m, mi, mpp_flags);
   clear_prefix ();
