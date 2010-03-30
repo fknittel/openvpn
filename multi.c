@@ -1759,7 +1759,8 @@ static void
 multi_bcast (struct multi_context *m,
 	     const struct buffer *buf,
 	     const struct multi_instance *sender_instance,
-	     const struct mroute_addr *sender_addr)
+	     const struct mroute_addr *sender_addr,
+	     int16_t vid)
 {
   struct hash_iterator hi;
   struct hash_element *he;
@@ -1804,6 +1805,22 @@ multi_bcast (struct multi_context *m,
 		    }
 		}
 #endif
+	      if (vid != 0 && vid != mi->context.options.vlan_tag)
+		{
+		  struct gc_arena gc = gc_new ();
+		  msg (M_INFO, "VLAN: addr[%s]@%d -> client[%s]@%d packet dropped by BCAST VLAN filter",
+		      mroute_addr_print_ex (sender_addr, MAPF_SHOW_ARP, &gc),
+		      vid, mi_prefix (mi), mi->context.options.vlan_tag);
+		  gc_free (&gc);
+		  continue;
+		}
+		{
+		  struct gc_arena gc = gc_new ();
+		  msg (M_INFO, "BCAST: addr[%s]@%d -> client[%s]@%d",
+		      mroute_addr_print_ex (sender_addr, MAPF_SHOW_ARP, &gc),
+		      vid, mi_prefix (mi), mi->context.options.vlan_tag);
+		  gc_free (&gc);
+		}
 	      multi_add_mbuf (m, mi, mb);
 	    }
 	}
@@ -1997,7 +2014,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 		  if (mroute_flags & MROUTE_EXTRACT_MCAST)
 		    {
 		      /* for now, treat multicast as broadcast */
-		      multi_bcast (m, &c->c2.to_tun, m->pending, NULL);
+		      multi_bcast (m, &c->c2.to_tun, m->pending, NULL, 0);
 		    }
 		  else /* possible client to client routing */
 		    {
@@ -2063,7 +2080,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 			{
 			  if (mroute_flags & (MROUTE_EXTRACT_BCAST|MROUTE_EXTRACT_MCAST))
 			    {
-			      multi_bcast (m, &c->c2.to_tun, m->pending, NULL);
+			      multi_bcast (m, &c->c2.to_tun, m->pending, NULL, vid);
 			    }
 			  else /* try client-to-client routing */
 			    {
@@ -2265,9 +2282,9 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
 	    {
 	      /* for now, treat multicast as broadcast */
 #ifdef ENABLE_PF
-	      multi_bcast (m, &m->top.c2.buf, NULL, e2);
+	      multi_bcast (m, &m->top.c2.buf, NULL, e2, vid);
 #else
-	      multi_bcast (m, &m->top.c2.buf, NULL, NULL);
+	      multi_bcast (m, &m->top.c2.buf, NULL, NULL, vid);
 #endif
 	    }
 	  else
@@ -2436,7 +2453,7 @@ gremlin_flood_clients (struct multi_context *m)
 	ASSERT (buf_write_u8 (&buf, get_random () & 0xFF));
 
       for (i = 0; i < parm.n_packets; ++i)
-	multi_bcast (m, &buf, NULL, NULL);
+	multi_bcast (m, &buf, NULL, NULL, 0);
 
       gc_free (&gc);
     }
