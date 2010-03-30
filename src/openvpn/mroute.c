@@ -258,7 +258,16 @@ mroute_extract_addr_ether (struct mroute_addr *src,
 	  struct buffer b = *buf;
 	  if (buf_advance (&b, sizeof (struct openvpn_ethhdr)))
 	    {
-	      switch (ntohs (eth->proto))
+	      uint16_t proto = ntohs (eth->proto);
+	      if (proto == OPENVPN_ETH_P_8021Q &&
+		  BLEN (buf) >= (int) sizeof (struct openvpn_8021qhdr))
+		{
+		  const struct openvpn_8021qhdr *tag = (const struct openvpn_8021qhdr *) BPTR (buf);
+		  proto = ntohs (tag->proto);
+		  buf_advance (&b, SIZE_ETH_TO_8021Q_HDR);
+		}
+
+	      switch (proto)
 		{
 		case OPENVPN_ETH_P_IPV4:
 		  ret |= (mroute_extract_addr_ipv4 (esrc, edest, &b) << MROUTE_SEC_SHIFT);
