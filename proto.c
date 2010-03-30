@@ -49,13 +49,26 @@ is_ipv4 (int tunnel_type, struct buffer *buf)
   else if (tunnel_type == DEV_TYPE_TAP)
     {
       const struct openvpn_ethhdr *eh;
-      if (BLEN (buf) < (int)(sizeof (struct openvpn_ethhdr)
-	  + sizeof (struct openvpn_iphdr)))
+      int hdr_size_sum = (int)(sizeof (struct openvpn_ethhdr)
+	  + sizeof (struct openvpn_iphdr));
+      if (BLEN (buf) < hdr_size_sum)
 	return false;
       eh = (const struct openvpn_ethhdr *) BPTR (buf);
-      if (ntohs (eh->proto) != OPENVPN_ETH_P_IPV4)
+      if (ntohs (eh->proto) == OPENVPN_ETH_P_VLAN)
+	{
+	  const struct openvpn_vlan_tag *tag;
+	  hdr_size_sum += sizeof (struct openvpn_vlan_tag);
+	  if (BLEN (buf) < hdr_size_sum)
+	    return false;
+          tag = (const struct openvpn_vlan_tag *) (BPTR (buf) + sizeof (struct openvpn_ethhdr));
+	  if (ntohs (tag->proto) != OPENVPN_ETH_P_IPV4)
+	    return false;
+	  offset = sizeof (struct openvpn_ethhdr) + sizeof (struct openvpn_vlan_tag);
+	}
+      else if (ntohs (eh->proto) != OPENVPN_ETH_P_IPV4)
 	return false;
-      offset = sizeof (struct openvpn_ethhdr);
+      else
+	offset = sizeof (struct openvpn_ethhdr);
     }
   else
     return false;
