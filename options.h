@@ -511,6 +511,7 @@ struct options
 #endif
 
   bool vlan_tagging;
+  int vlan_tag;
 };
 
 #define streq(x, y) (!strcmp((x), (y)))
