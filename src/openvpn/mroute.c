@@ -58,7 +58,7 @@ static inline bool
 is_mac_mcast_maddr(const struct mroute_addr *addr)
 {
     return (addr->type & MR_ADDR_MASK) == MR_ADDR_ETHER
-           && is_mac_mcast_addr(addr->eth_addr);
+           && is_mac_mcast_addr(addr->eth_addr.mac);
 }
 
 /*
@@ -247,12 +247,27 @@ mroute_extract_addr_ip(struct mroute_addr *src, struct mroute_addr *dest,
     return ret;
 }
 
+static void
+mroute_copy_ether_to_addr(struct mroute_addr *maddr,
+                          const uint8_t *eth_addr,
+                          int16_t vid)
+{
+    maddr->type = MR_ADDR_ETHER;
+    maddr->netbits = 0;
+    memcpy(maddr->eth_addr.mac, eth_addr, sizeof(maddr->eth_addr.mac));
+#ifdef ENABLE_VLAN_TAGGING
+    maddr->eth_addr.vid = vid;
+#endif
+    maddr->len = sizeof(maddr->eth_addr);
+}
+
 unsigned int
 mroute_extract_addr_ether(struct mroute_addr *src,
                           struct mroute_addr *dest,
                           struct mroute_addr *esrc,
                           struct mroute_addr *edest,
-                          const struct buffer *buf)
+                          const struct buffer *buf,
+                          int16_t vid)
 {
     unsigned int ret = 0;
     if (BLEN(buf) >= (int) sizeof(struct openvpn_ethhdr))
@@ -260,17 +275,11 @@ mroute_extract_addr_ether(struct mroute_addr *src,
         const struct openvpn_ethhdr *eth = (const struct openvpn_ethhdr *) BPTR(buf);
         if (src)
         {
-            src->type = MR_ADDR_ETHER;
-            src->netbits = 0;
-            src->len = 6;
-            memcpy(src->eth_addr, eth->source, sizeof(dest->eth_addr));
+            mroute_copy_ether_to_addr(src, eth->source, vid);
         }
         if (dest)
         {
-            dest->type = MR_ADDR_ETHER;
-            dest->netbits = 0;
-            dest->len = 6;
-            memcpy(dest->eth_addr, eth->dest, sizeof(dest->eth_addr));
+            mroute_copy_ether_to_addr(dest, eth->dest, vid);
 
             /* ethernet broadcast/multicast packet? */
             if (is_mac_mcast_addr(eth->dest))
@@ -440,8 +449,12 @@ mroute_addr_print_ex(const struct mroute_addr *ma,
         switch (maddr.type & MR_ADDR_MASK)
         {
             case MR_ADDR_ETHER:
-                buf_printf(&out, "%s", format_hex_ex(ma->eth_addr,
-                                                     sizeof(ma->eth_addr), 0, 1, ":", gc));
+                buf_printf(&out, "%s", format_hex_ex(ma->eth_addr.mac,
+                                                     sizeof(ma->eth_addr.mac),
+                                                     0, 1, ":", gc));
+#ifdef ENABLE_VLAN_TAGGING
+                buf_printf(&out, "@%d", ma->eth_addr.vid);
+#endif
                 break;
 
             case MR_ADDR_IPV4:

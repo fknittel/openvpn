@@ -82,7 +82,12 @@ struct mroute_addr {
                       * valid if MR_WITH_NETBITS is set */
     union {
         uint8_t raw_addr[MR_MAX_ADDR_LEN]; /* actual address */
-        uint8_t eth_addr[OPENVPN_ETH_ALEN];
+        struct {
+            uint8_t mac[OPENVPN_ETH_ALEN];
+#ifdef ENABLE_VLAN_TAGGING
+            int16_t vid;
+#endif
+        } eth_addr;
         struct {
             in_addr_t addr;     /* _network order_ IPv4 address */
             in_port_t port;     /* _network order_ TCP/UDP port */
@@ -178,7 +183,8 @@ unsigned int mroute_extract_addr_ether(struct mroute_addr *src,
                                        struct mroute_addr *dest,
                                        struct mroute_addr *esrc,
                                        struct mroute_addr *edest,
-                                       const struct buffer *buf);
+                                       const struct buffer *buf,
+                                       int16_t vid);
 
 /*
  * Given a raw packet in buf, return the src and dest
@@ -190,7 +196,8 @@ mroute_extract_addr_from_packet(struct mroute_addr *src,
                                 struct mroute_addr *esrc,
                                 struct mroute_addr *edest,
                                 const struct buffer *buf,
-                                int tunnel_type)
+                                int tunnel_type,
+                                int16_t vid)
 {
     unsigned int ret = 0;
     verify_align_4(buf);
@@ -200,7 +207,7 @@ mroute_extract_addr_from_packet(struct mroute_addr *src,
     }
     else if (tunnel_type == DEV_TYPE_TAP)
     {
-        ret = mroute_extract_addr_ether(src, dest, esrc, edest, buf);
+        ret = mroute_extract_addr_ether(src, dest, esrc, edest, buf, vid);
     }
     return ret;
 }
