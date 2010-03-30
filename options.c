@@ -422,6 +422,7 @@ static const char usage_message[] =
 #endif
 #ifdef ENABLE_VLAN_TAGGING
   "--vlan-tagging  : Enable VLAN tagging/untagging to/from TAP device.\n"
+  "--vlan-vid v    : Sets the VLAN identifier for a client.\n"
 #endif
 #endif
   "\n"
@@ -1180,6 +1181,7 @@ show_settings (const struct options *o)
 
 #ifdef ENABLE_VLAN_TAGGING
   SHOW_BOOL (vlan_tagging);
+  SHOW_INT (vlan_vid);
 #endif
 
 #ifdef HAVE_GETTIMEOFDAY
@@ -1752,6 +1754,8 @@ options_postprocess_verify_ce (const struct options *options, const struct conne
 #ifdef ENABLE_VLAN_TAGGING
       if (options->vlan_tagging && dev != DEV_TYPE_TAP)
 	msg (M_USAGE, "--vlan-tagging only works with --dev tap");
+      if (!options->vlan_tagging && options->vlan_vid)
+	msg (M_USAGE, "--vlan-vid must be used with activated --vlan-tagging");
 #endif
     }
   else
@@ -1801,7 +1805,7 @@ options_postprocess_verify_ce (const struct options *options, const struct conne
 #endif
 #ifdef ENABLE_VLAN_TAGGING
       if (options->vlan_tagging)
-	msg (M_USAGE, "--vlan-tagging requires --mode server");
+	msg (M_USAGE, "--vlan-tagging --mode server");
 #endif
     }
 #endif /* P2MP_SERVER */
@@ -5749,6 +5753,24 @@ add_option (struct options *options,
     {
       VERIFY_PERMISSION (OPT_P_GENERAL);
       options->vlan_tagging = true;
+    }
+  else if (streq (p[0], "vlan-vid"))
+    {
+      VERIFY_PERMISSION (OPT_P_INSTANCE);
+      if (p[1])
+	{
+	  options->vlan_vid = positive_atoi (p[1]);
+	  if (options->vlan_vid < OPENVPN_8021Q_MIN_VID || options->vlan_vid > OPENVPN_8021Q_MAX_VID)
+	    {
+	      msg (msglevel, "the parameter of --vlan-vid parameters must be >= %d and <= %d", OPENVPN_8021Q_MIN_VID, OPENVPN_8021Q_MAX_VID);
+	      goto err;
+	    }
+	}
+      else
+	{
+	  msg (msglevel, "error parsing --vlan-vid parameters");
+	  goto err;
+	}
     }
 #endif
   else
