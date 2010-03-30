@@ -61,6 +61,7 @@ struct openvpn_ethhdr
 # define OPENVPN_ETH_P_IPV4   0x0800  /* IPv4 protocol */
 # define OPENVPN_ETH_P_IPV6   0x86DD  /* IPv6 protocol */
 # define OPENVPN_ETH_P_ARP    0x0806  /* ARP protocol */
+# define OPENVPN_ETH_P_VLAN   0x8100  /* VLAN (IEEE 802.1Q) encapsulation */
   uint16_t proto;                     /* packet type ID field */
 };
 
@@ -200,7 +201,25 @@ void ipv4_packet_size_verify (const uint8_t *data,
 #endif
 
 
+struct openvpn_vlan_tag
+{
+# define OPENVPN_VLAN_MASK_VID htons (0xFFFE)
+  uint16_t pcp_cfi_vid;
+  uint16_t proto;
+};
 #define OPENVPN_VLAN_MIN_VID 1
-#define OPENVPN_VLAN_MAX_VID 0xFFFE
+#define OPENVPN_VLAN_MAX_VID ntohs (OPENVPN_VLAN_MASK_VID)
+
+static inline int
+vlan_get_vid (const struct openvpn_vlan_tag *tag)
+{
+  return tag->pcp_cfi_vid & OPENVPN_VLAN_MASK_VID;
+}
+
+static inline void
+vlan_set_vid (struct openvpn_vlan_tag *tag, const int vid)
+{
+  tag->pcp_cfi_vid = (tag->pcp_cfi_vid & ~OPENVPN_VLAN_MASK_VID) | (vid & OPENVPN_VLAN_MASK_VID);
+}
 
 #endif
