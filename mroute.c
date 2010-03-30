@@ -169,7 +169,8 @@ mroute_extract_addr_ether (struct mroute_addr *src,
 			   struct mroute_addr *dest,
 			   struct mroute_addr *esrc,
 			   struct mroute_addr *edest,
-			   const struct buffer *buf)
+			   const struct buffer *buf,
+			   int16_t vid)
 {
   unsigned int ret = 0;
   if (BLEN (buf) >= (int) sizeof (struct openvpn_ethhdr))
@@ -179,15 +180,17 @@ mroute_extract_addr_ether (struct mroute_addr *src,
 	{
 	  src->type = MR_ADDR_ETHER;
 	  src->netbits = 0;
-	  src->len = 6;
+	  src->len = 8;
 	  memcpy (src->addr, eth->source, 6);
+	  memcpy (src->addr + 6, &vid, 2);
 	}
       if (dest)
 	{
 	  dest->type = MR_ADDR_ETHER;
 	  dest->netbits = 0;
-	  dest->len = 6;
+	  dest->len = 8;
 	  memcpy (dest->addr, eth->dest, 6);
+	  memcpy (dest->addr + 6, &vid, 2);
 
 	  /* ethernet broadcast/multicast packet? */
 	  if (is_mac_mcast_addr (eth->dest))
@@ -303,6 +306,7 @@ mroute_addr_print_ex (const struct mroute_addr *ma,
 	{
 	case MR_ADDR_ETHER:
 	  buf_printf (&out, "%s", format_hex_ex (ma->addr, 6, 0, 1, ":", gc)); 
+	  buf_printf (&out, "@%d", *(int16_t*)(ma->addr + 6));
 	  break;
 	case MR_ADDR_IPV4:
 	  {
