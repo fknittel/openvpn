@@ -2117,6 +2117,73 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 }
 
 /*
+ * Removes the VLAN tagging of a frame and returns the frame's VID.  Frames
+ * without tagging are dropped.
+ */
+static int16_t
+remove_vlan_identifier (struct buffer *buf)
+{
+  struct openvpn_ethhdr eth;
+  struct openvpn_8021qhdr vlanhdr;
+  int16_t vid;
+
+  if (BLEN (buf) < (sizeof (struct openvpn_8021qhdr)))
+    goto err;
+
+  vlanhdr = *(const struct openvpn_8021qhdr *) BPTR (buf);
+
+  if (ntohs (vlanhdr.tpid) != OPENVPN_ETH_P_8021Q)
+    {
+      /* Drop untagged frames */
+      goto err;
+    }
+
+  /* Ethernet II frame with 802.1Q */
+  vid = ntohs (vlan_get_vid (&vlanhdr));
+  memcpy (&eth, &vlanhdr, sizeof (eth));
+  eth.proto = vlanhdr.proto;
+
+  buf_advance (buf, SIZE_ETH_TO_8021Q_HDR);
+  memcpy (BPTR (buf), &eth, sizeof eth);
+
+  return vid;
+err:
+  /* Drop the frame. */
+  buf->len = 0;
+  return -1;
+}
+
+/*
+ * Adds VLAN tagging to a frame.  Short frames that can't be tagged are
+ * dropped.
+ */
+void
+multi_prepend_vlan_identifier (struct multi_instance *mi, struct buffer *buf)
+{
+  struct openvpn_ethhdr eth;
+  struct openvpn_8021qhdr vlanhdr;
+  uint8_t *p;
+
+  /* Frame too small or not enough head room for VLAN tag? */
+  if ((BLEN (buf) < (int) sizeof (struct openvpn_ethhdr)) ||
+      (buf_reverse_capacity (buf) < SIZE_ETH_TO_8021Q_HDR))
+    {
+      /* Drop the frame. */
+      buf->len = 0;
+      return;
+    }
+
+  eth = *(const struct openvpn_ethhdr *) BPTR (buf);
+  memcpy (&vlanhdr, &eth, sizeof eth);
+  vlanhdr.tpid = htons (OPENVPN_ETH_P_8021Q);
+  vlanhdr.proto = eth.proto;
+  vlan_set_vid (&vlanhdr, htons (mi->context.options.vlan_tag));
+
+  ASSERT (p = buf_prepend (buf, SIZE_ETH_TO_8021Q_HDR));
+  memcpy (p, &vlanhdr, sizeof vlanhdr);
+}
+
+/*
  * Process packets in the TUN/TAP interface -> TCP/UDP socket direction,
  * i.e. server -> client direction.
  */
@@ -2157,6 +2224,12 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
        * Route an incoming tun/tap packet to
        * the appropriate multi_instance object.
        */
+
+      if (dev_type == DEV_TYPE_TAP && m->top.options.vlan_tagging)
+        {
+	  if (remove_vlan_identifier (&m->top.c2.buf) == -1)
+	    return false;
+        }
 
       mroute_flags = mroute_extract_addr_from_packet (&src,
 						      &dest,

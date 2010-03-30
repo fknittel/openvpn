@@ -61,20 +61,26 @@ struct openvpn_ethhdr
 # define OPENVPN_ETH_P_IPV4   0x0800  /* IPv4 protocol */
 # define OPENVPN_ETH_P_IPV6   0x86DD  /* IPv6 protocol */
 # define OPENVPN_ETH_P_ARP    0x0806  /* ARP protocol */
+# define OPENVPN_ETH_P_8021Q  0x8100  /* 802.1Q protocol */
   uint16_t proto;                     /* packet type ID field */
 };
-
-# define OPENVPN_ETH_P_8021Q  0x8100  /* 802.1Q protocol */
 
 struct openvpn_8021qhdr
 {
   uint8_t dest[OPENVPN_ETH_ALEN];     /* destination ethernet addr */
   uint8_t source[OPENVPN_ETH_ALEN];   /* source ethernet addr	*/
 
-  uint32_t tag;                       /* packet 802.1Q Vlan Tag */
-  uint16_t proto;                     /* packet type ID field */
+  uint16_t tpid;                      /* 802.1Q Tag Protocol Identifier */
+# define OPENVPN_8021Q_MASK_VID htons (0xFFFE) /* mask VID out of tag */
+  uint16_t tag;                       /* tag field containing PCP, CFI, VID */
+  uint16_t proto;                     /* contained packet type ID field */
 };
 
+/*
+ * Size difference between a regular Ethernet II header and an Ethernet II
+ * header with additional IEEE 802.1Q tagging.
+ */
+#define SIZE_ETH_TO_8021Q_HDR (sizeof (struct openvpn_8021qhdr) - sizeof (struct openvpn_ethhdr))
 
 struct openvpn_arp {
 # define ARP_MAC_ADDR_TYPE 0x0001
@@ -213,6 +219,24 @@ void ipv4_packet_size_verify (const uint8_t *data,
 
 
 #define OPENVPN_8021Q_MIN_VID 1
-#define OPENVPN_8021Q_MAX_VID 0xFFFE
+#define OPENVPN_8021Q_MAX_VID ntohs (OPENVPN_8021Q_MASK_VID)
+
+/*
+ * Retrieve the VLAN Identifier (VID) from the IEEE 802.1Q header.
+ */
+static inline int
+vlan_get_vid (const struct openvpn_8021qhdr *hdr)
+{
+  return hdr->tag & OPENVPN_8021Q_MASK_VID;
+}
+
+/*
+ * Set the VLAN Identifier (VID) in an IEEE 802.1Q header.
+ */
+static inline void
+vlan_set_vid (struct openvpn_8021qhdr *hdr, const int vid)
+{
+  hdr->tag = (hdr->tag & ~OPENVPN_8021Q_MASK_VID) | (vid & OPENVPN_8021Q_MASK_VID);
+}
 
 #endif
