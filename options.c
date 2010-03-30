@@ -1178,6 +1178,7 @@ show_settings (const struct options *o)
   SHOW_BOOL (ifconfig_nowarn);
 
   SHOW_BOOL (vlan_tagging);
+  SHOW_INT (vlan_tag);
 
 #ifdef HAVE_GETTIMEOFDAY
   SHOW_INT (shaper);
@@ -1746,6 +1747,8 @@ options_postprocess_verify_ce (const struct options *options, const struct conne
 
 	if ((options->ssl_flags & SSLF_NO_NAME_REMAPPING) && script_method == SM_SYSTEM)
 	  msg (M_USAGE, "--script-security method='system' cannot be combined with --no-name-remapping");
+      if (!options->vlan_tagging && options->vlan_tag)
+	msg (M_USAGE, "--vlan-tag must be used with activated --vlan-tagging");
     }
   else
     {
@@ -1792,8 +1795,8 @@ options_postprocess_verify_ce (const struct options *options, const struct conne
       if (options->port_share_host || options->port_share_port)
 	msg (M_USAGE, "--port-share requires TCP server mode (--mode server --proto tcp-server)");
 #endif
-      if (options->vlan_tagging)
-	msg (M_USAGE, "--vlan-tagging requires --mode server");
+      if (options->vlan_tagging || options->vlan_tag)
+	msg (M_USAGE, "--vlan-tagging/--vlan-tag requires --mode server");
 
     }
 #endif /* P2MP_SERVER */
@@ -5747,6 +5750,24 @@ add_option (struct options *options,
     {
       VERIFY_PERMISSION (OPT_P_GENERAL);
       options->vlan_tagging = true;
+    }
+  else if (streq (p[0], "vlan-tag"))
+    {
+      VERIFY_PERMISSION (OPT_P_INSTANCE);
+      if (p[1])
+	{
+	  options->vlan_tag = positive_atoi (p[1]);
+	  if (options->vlan_tag < OPENVPN_VLAN_MIN_VID || options->vlan_tag > OPENVPN_VLAN_MAX_VID)
+	    {
+	      msg (msglevel, "the parameter of --vlan-tag parameters must be >= %d and <= %d", OPENVPN_VLAN_MIN_VID, OPENVPN_VLAN_MAX_VID);
+	      goto err;
+	    }
+	}
+      else
+	{
+	  msg (msglevel, "error parsing --vlan-tag parameters");
+	  goto err;
+	}
     }
   else
     {

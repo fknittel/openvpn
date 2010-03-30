@@ -199,4 +199,8 @@ void ipv4_packet_size_verify (const uint8_t *data,
 			      counter_type *errors);
 #endif
 
+
+#define OPENVPN_VLAN_MIN_VID 1
+#define OPENVPN_VLAN_MAX_VID 0xFFFE
+
 #endif
