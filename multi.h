@@ -405,6 +405,9 @@ multi_get_timeout (struct multi_context *m, struct timeval *dest)
 static inline bool
 multi_process_outgoing_tun (struct multi_context *m, const unsigned int mpp_flags)
 {
+#ifdef ENABLE_VLAN_TAGGING
+  void multi_prepend_vlan_identifier (struct multi_instance *mi, struct buffer *buf);
+#endif
   struct multi_instance *mi = m->pending;
   bool ret = true;
 
@@ -415,6 +418,12 @@ multi_process_outgoing_tun (struct multi_context *m, const unsigned int mpp_flag
 	  mi->context.c2.to_tun.len);
 #endif
   set_prefix (mi);
+#ifdef ENABLE_VLAN_TAGGING
+  if (mi->context.options.vlan_tag)
+    {
+      multi_prepend_vlan_identifier (mi, &mi->context.c2.to_tun);
+    }
+#endif
   process_outgoing_tun (&mi->context);
   ret = multi_process_post (m, mi, mpp_flags);
   clear_prefix ();
