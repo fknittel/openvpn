@@ -246,4 +246,9 @@ void ipv4_packet_size_verify (const uint8_t *data,
 			      counter_type *errors);
 #endif
 
+#ifdef ENABLE_VLAN_TAGGING
+# define OPENVPN_8021Q_MIN_VID 1
+# define OPENVPN_8021Q_MAX_VID 4094
+#endif
+
 #endif
