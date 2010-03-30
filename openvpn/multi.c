@@ -1975,7 +1975,8 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 							      NULL,
 							      NULL,
 							      &c->c2.to_tun,
-							      DEV_TYPE_TUN);
+							      DEV_TYPE_TUN,
+							      0);
 
 	      /* drop packet if extract failed */
 	      if (!(mroute_flags & MROUTE_EXTRACT_SUCCEEDED))
@@ -2033,10 +2034,13 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 	    }
 	  else if (TUNNEL_TYPE (m->top.c1.tuntap) == DEV_TYPE_TAP)
 	    {
+	      int16_t vid = 0;
 #ifdef ENABLE_PF
 	      struct mroute_addr edest;
 	      mroute_addr_reset (&edest);
 #endif
+	      if (m->top.c1.tuntap->vlan_tagging)
+		vid = c->options.vlan_tag;
 	      /* extract packet source and dest addresses */
 	      mroute_flags = mroute_extract_addr_from_packet (&src,
 							      &dest,
@@ -2047,7 +2051,8 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 							      NULL,
 #endif
 							      &c->c2.to_tun,
-							      DEV_TYPE_TAP);
+							      DEV_TYPE_TAP,
+							      vid);
 
 	      if (mroute_flags & MROUTE_EXTRACT_SUCCEEDED)
 		{
@@ -2205,6 +2210,7 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
       unsigned int mroute_flags;
       struct mroute_addr src, dest;
       const int dev_type = TUNNEL_TYPE (m->top.c1.tuntap);
+      int16_t vid = 0;
 
 #ifdef ENABLE_PF
       struct mroute_addr esrc, *e1, *e2;
@@ -2234,7 +2240,7 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
 
       if (dev_type == DEV_TYPE_TAP && m->top.c1.tuntap->vlan_tagging)
         {
-	  if (remove_vlan_identifier (&m->top.c2.buf) == -1)
+	  if ((vid = remove_vlan_identifier (&m->top.c2.buf)) == -1)
 	    return false;
         }
 
@@ -2247,7 +2253,8 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
 #endif
 						      NULL,
 						      &m->top.c2.buf,
-						      dev_type);
+						      dev_type,
+						      vid);
 
       if (mroute_flags & MROUTE_EXTRACT_SUCCEEDED)
 	{
