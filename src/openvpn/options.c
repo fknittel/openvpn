@@ -486,6 +486,7 @@ static const char usage_message[] =
 #endif
 #ifdef ENABLE_VLAN_TAGGING
     "--vlan-accept raw|tagged|untagged|all : Set VLAN tagging mode. Default is 'raw'.\n"
+    "--vlan-pvid v   : Sets the Port VLAN Identifier. Defaults to 1.\n"
 #endif
 #endif /* if P2MP_SERVER */
     "\n"
@@ -881,6 +882,7 @@ init_options(struct options *o, const bool init_gc)
 #endif                  /* ENABLE_PKCS11 */
 #ifdef ENABLE_VLAN_TAGGING
     o->vlan_accept = VAF_RAW;
+    o->vlan_pvid = 1;
 #endif
 
 /* P2MP server context features */
@@ -1366,6 +1368,7 @@ show_p2mp_parms(const struct options *o)
 #endif
 #ifdef ENABLE_VLAN_TAGGING
     msg(D_SHOW_PARMS, "  vlan_accept = %s", print_vlan_accept(o->vlan_accept));
+    SHOW_INT(vlan_pvid);
 #endif
 #endif /* P2MP_SERVER */
 
@@ -2410,6 +2413,13 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         {
 	    msg(M_USAGE, "--vlan-accept set to '%s' only works with --dev tap",
 	        print_vlan_accept(options->vlan_accept));
+        }
+        if (options->vlan_accept == VAF_RAW)
+        {
+            if (options->vlan_pvid != defaults.vlan_pvid)
+            {
+                msg(M_USAGE, "--vlan-pvid requires --vlan-accept in non-raw mode");
+            }
         }
 #endif
 
@@ -8391,6 +8401,17 @@ add_option(struct options *options,
         {
           msg(msglevel, "--vlan-accept must be 'raw', tagged', 'untagged' or 'all'");
           goto err;
+        }
+    }
+    else if (streq(p[0], "vlan-pvid") && p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL|OPT_P_INSTANCE);
+        options->vlan_pvid = positive_atoi(p[1]);
+        if (options->vlan_pvid < OPENVPN_8021Q_MIN_VID
+            || options->vlan_pvid > OPENVPN_8021Q_MAX_VID)
+        {
+            msg(msglevel, "the parameter of --vlan-pvid parameters must be >= %d and <= %d", OPENVPN_8021Q_MIN_VID, OPENVPN_8021Q_MAX_VID);
+            goto err;
         }
     }
 #endif
