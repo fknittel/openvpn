@@ -6,6 +6,7 @@
  *             packet compression.
  *
  *  Copyright (C) 2002-2009 OpenVPN Technologies, Inc. <sales@openvpn.net>
+ *  Copyright (C) 2010 Fabian Knittel <fabian.knittel@avona.com>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2
@@ -423,6 +424,7 @@ static const char usage_message[] =
 #ifdef ENABLE_VLAN_TAGGING
   "--vlan-accept mode : Set VLAN tagging/untagging mode to either 'raw', 'tagged'\n"
   "                  or untagged.  Default is 'raw'.\n"
+  "--vlan-pvid v   : Sets the Port VLAN Identifier. Defaults to 1.\n"
 #endif
 #endif
   "\n"
@@ -760,6 +762,7 @@ init_options (struct options *o, const bool init_gc)
 #endif			/* ENABLE_PKCS11 */
 #ifdef ENABLE_VLAN_TAGGING
   o->vlan_accept = VAF_RAW;
+  o->vlan_pvid = 1;
 #endif
 }
 
@@ -1034,6 +1037,7 @@ show_p2mp_parms (const struct options *o)
 #endif
 #ifdef ENABLE_VLAN_TAGGING
   msg (D_SHOW_PARMS, "  vlan_accept = %s", print_vlan_accept (o->vlan_accept));
+  SHOW_INT (vlan_pvid);
 #endif
 #endif /* P2MP_SERVER */
 
@@ -5791,6 +5795,17 @@ add_option (struct options *options,
       else
 	{
 	  msg (msglevel, "--vlan-accept must be 'raw', 'tagged' or 'untagged'");
+	  goto err;
+	}
+    }
+  else if (streq (p[0], "vlan-pvid") && p[1])
+    {
+      VERIFY_PERMISSION (OPT_P_INSTANCE);
+      options->vlan_pvid = positive_atoi (p[1]);
+      if (options->vlan_pvid < OPENVPN_8021Q_MIN_VID ||
+	  options->vlan_pvid > OPENVPN_8021Q_MAX_VID)
+	{
+	  msg (msglevel, "the parameter of --vlan-pvid parameters must be >= %d and <= %d", OPENVPN_8021Q_MIN_VID, OPENVPN_8021Q_MAX_VID);
 	  goto err;
 	}
     }
