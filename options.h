@@ -512,6 +512,7 @@ struct options
 
 #ifdef ENABLE_VLAN_TAGGING
   bool vlan_tagging;
+  int vlan_pvid;
 #endif
 };
 

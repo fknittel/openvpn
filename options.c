@@ -6,6 +6,7 @@
  *             packet compression.
  *
  *  Copyright (C) 2002-2009 OpenVPN Technologies, Inc. <sales@openvpn.net>
+ *  Copyright (C) 2010 Fabian Knittel <fabian.knittel@avona.com>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2
@@ -422,6 +423,7 @@ static const char usage_message[] =
 #endif
 #ifdef ENABLE_VLAN_TAGGING
   "--vlan-tagging  : Enable VLAN tagging/untagging to/from TAP device.\n"
+  "--vlan-pvid v   : Sets the VLAN identifier for a client.\n"
 #endif
 #endif
   "\n"
@@ -757,6 +759,9 @@ init_options (struct options *o, const bool init_gc)
 #ifdef ENABLE_PKCS11
   o->pkcs11_pin_cache_period = -1;
 #endif			/* ENABLE_PKCS11 */
+#ifdef ENABLE_VLAN_TAGGING
+  o->vlan_pvid = 1;
+#endif
 }
 
 void
@@ -1180,6 +1185,7 @@ show_settings (const struct options *o)
 
 #ifdef ENABLE_VLAN_TAGGING
   SHOW_BOOL (vlan_tagging);
+  SHOW_INT (vlan_pvid);
 #endif
 
 #ifdef HAVE_GETTIMEOFDAY
@@ -1752,6 +1758,8 @@ options_postprocess_verify_ce (const struct options *options, const struct conne
 #ifdef ENABLE_VLAN_TAGGING
       if (options->vlan_tagging && dev != DEV_TYPE_TAP)
 	msg (M_USAGE, "--vlan-tagging only works with --dev tap");
+      if (!options->vlan_tagging && options->vlan_pvid)
+	msg (M_USAGE, "--vlan-pvid must be used with activated --vlan-tagging");
 #endif
     }
   else
@@ -5749,6 +5757,24 @@ add_option (struct options *options,
     {
       VERIFY_PERMISSION (OPT_P_GENERAL);
       options->vlan_tagging = true;
+    }
+  else if (streq (p[0], "vlan-pvid"))
+    {
+      VERIFY_PERMISSION (OPT_P_INSTANCE);
+      if (p[1])
+	{
+	  options->vlan_pvid = positive_atoi (p[1]);
+	  if (options->vlan_pvid < OPENVPN_8021Q_MIN_VID || options->vlan_pvid > OPENVPN_8021Q_MAX_VID)
+	    {
+	      msg (msglevel, "the parameter of --vlan-pvid parameters must be >= %d and <= %d", OPENVPN_8021Q_MIN_VID, OPENVPN_8021Q_MAX_VID);
+	      goto err;
+	    }
+	}
+      else
+	{
+	  msg (msglevel, "error parsing --vlan-pvid parameters");
+	  goto err;
+	}
     }
 #endif
   else
