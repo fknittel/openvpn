@@ -202,7 +202,15 @@ mroute_extract_addr_ether (struct mroute_addr *src,
 	  struct buffer b = *buf;
 	  if (buf_advance (&b, sizeof (struct openvpn_ethhdr)))
 	    {
-	      switch (ntohs (eth->proto))
+	      uint16_t proto = ntohs (eth->proto);
+	      if (proto == OPENVPN_ETH_P_VLAN)
+		{
+		  const struct openvpn_vlan_tag *tag = (const struct openvpn_vlan_tag *) BPTR (&b);
+		  proto = ntohs (tag->proto);
+		  buf_advance (&b, sizeof (struct openvpn_vlan_tag));
+		}
+
+	      switch (proto)
 		{
 		case OPENVPN_ETH_P_IPV4:
 		  ret |= (mroute_extract_addr_ipv4 (esrc, edest, &b) << MROUTE_SEC_SHIFT);
