@@ -6,6 +6,7 @@
  *             packet compression.
  *
  *  Copyright (C) 2002-2010 OpenVPN Technologies, Inc. <sales@openvpn.net>
+ *  Copyright (C) 2010      Fabian Knittel <fabian.knittel@lettink.de>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2
@@ -2284,6 +2285,159 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
   return ret;
 }
 
+#ifdef ENABLE_VLAN_TAGGING
+/*
+ * For vlan_accept == VAF_ONLY_UNTAGGED_OR_PRIORITY:
+ *   If a frame is VLAN-tagged, it is dropped.  Otherwise, the global
+ *   vlan_pvid is returned as VID.
+ *
+ * For vlan_accept == VAF_ONLY_VLAN_TAGGED:
+ *   If a frame is VLAN-tagged and contains no priority information, the
+ *   tagging is removed and the embedded VID is returned.
+ *   If a frame is VLAN-tagged and contains priority information, the frame
+ *   is turned into a priority frame and the embedded VID is returned.
+ *   If a frame isn't VLAN-tagged, the frame is dropped.
+ *
+ * For vlan_accept == VAF_ALL:
+ *   Accepts both VLAN-tagged and untagged (or priority-tagged) frames and
+ *   and handles them as described above.
+ */
+static int16_t
+remove_vlan_tag (const struct context *c, struct buffer *buf)
+{
+  struct openvpn_ethhdr eth;
+  struct openvpn_8021qhdr vlanhdr;
+  int16_t vid;
+  int16_t pcp;
+
+  if (BLEN (buf) < (sizeof (struct openvpn_8021qhdr)))
+    goto drop;
+
+  vlanhdr = *(const struct openvpn_8021qhdr *) BPTR (buf);
+
+  if (ntohs (vlanhdr.tpid) != OPENVPN_ETH_P_8021Q)
+    {
+      /* Untagged packet. */
+
+      if (c->options.vlan_accept == VAF_ONLY_VLAN_TAGGED)
+	{
+	  /* We only accept vlan-tagged frames, so drop frames without vlan-tag
+	   */
+	  msg (D_VLAN_DEBUG, "dropping frame without vlan-tag (proto/len 0x%04x)",
+	       ntohs (vlanhdr.tpid));
+	  goto drop;
+	}
+
+      msg (D_VLAN_DEBUG, "assuming pvid for frame without vlan-tag, pvid: %d (proto/len 0x%04x)",
+	   c->options.vlan_pvid, ntohs (vlanhdr.tpid));
+      /* We return the global PVID as the VID for the untagged frame. */
+      return c->options.vlan_pvid;
+    }
+
+  /* Tagged packet. */
+
+  vid = ntohs (vlanhdr_get_vid (&vlanhdr));
+  pcp = ntohs (vlanhdr_get_pcp (&vlanhdr));
+
+  if (c->options.vlan_accept == VAF_ONLY_UNTAGGED_OR_PRIORITY)
+    {
+      if (vid != 0)
+	{
+	  /* We only accept untagged frames or priority-tagged frames. So drop
+	     VLAN-tagged frames. */
+	  msg (D_VLAN_DEBUG, "dropping frame with vlan-tag, vid: %d (proto/len 0x%04x)",
+	       vid, ntohs (vlanhdr.proto));
+	  goto drop;
+	}
+
+      /* We return the global PVID as the VID for the priority-tagged frame. */
+      return c->options.vlan_pvid;
+    }
+
+  if (pcp == 0)
+    {
+      /* VLAN-tagged without priority information. */
+
+      msg (D_VLAN_DEBUG, "removing vlan-tag from frame: vid: %d, wrapped proto/len: 0x%04x",
+           vid, ntohs (vlanhdr.proto));
+      memcpy (&eth, &vlanhdr, sizeof (eth));
+      eth.proto = vlanhdr.proto;
+
+      buf_advance (buf, SIZE_ETH_TO_8021Q_HDR);
+      memcpy (BPTR (buf), &eth, sizeof eth);
+    }
+  else
+    {
+      /* VLAN-tagged _with_ priority information.  We turn this frame into
+	 a pure priority frame.  I.e. we clear out the VID but leave the rest
+	 of the header intact. */
+      msg (D_VLAN_DEBUG, "removing vlan-tag from priority frame: vid: %d, wrapped proto/len: 0x%04x, prio: %d",
+           vid, ntohs (vlanhdr.proto), pcp);
+      vlanhdr_set_vid (&vlanhdr, htons (0));
+      memcpy (BPTR (buf), &vlanhdr, sizeof vlanhdr);
+    }
+
+  return vid;
+drop:
+  /* Drop the frame. */
+  buf->len = 0;
+  return -1;
+}
+
+/*
+ * Adds VLAN tagging to a frame.  Assumes vlan_accept == VAF_ONLY_VLAN_TAGGED
+ * or VAF_ALL and a matching PVID.
+ */
+void
+multi_prepend_vlan_tag (const struct context *c, struct buffer *buf)
+{
+  struct openvpn_ethhdr eth;
+  struct openvpn_8021qhdr *vlanhdr;
+
+  /* Frame too small? */
+  if (BLEN (buf) < (int) sizeof (struct openvpn_ethhdr))
+    goto drop;
+
+  eth = *(const struct openvpn_ethhdr *) BPTR (buf);
+  if (ntohs (eth.proto) == OPENVPN_ETH_P_8021Q)
+    {
+      /* Priority-tagged frame. */
+
+      /* Frame too small for header type? */
+      if (BLEN (buf) < (int) (sizeof (struct openvpn_8021qhdr)))
+	goto drop;
+
+      vlanhdr = (struct openvpn_8021qhdr *) BPTR (buf);
+    }
+  else
+    {
+      /* Untagged frame. */
+
+      /* Not enough head room for VLAN tag? */
+      if (buf_reverse_capacity (buf) < SIZE_ETH_TO_8021Q_HDR)
+	goto drop;
+
+      vlanhdr = (struct openvpn_8021qhdr *) buf_prepend (buf, SIZE_ETH_TO_8021Q_HDR);
+
+      /* Initialise VLAN-tag ... */
+      memcpy (vlanhdr, &eth, sizeof eth);
+      vlanhdr->tpid = htons (OPENVPN_ETH_P_8021Q);
+      vlanhdr->proto = eth.proto;
+      vlanhdr_set_pcp (vlanhdr, htons (0));
+      vlanhdr_set_cfi (vlanhdr, htons (0));
+    }
+
+  vlanhdr_set_vid (vlanhdr, htons (c->options.vlan_pvid));
+
+  msg (D_VLAN_DEBUG, "tagging frame: vid %d (wrapping proto/len: %04x)",
+       c->options.vlan_pvid, vlanhdr->proto);
+  return;
+drop:
+  /* Drop the frame. */
+  buf->len = 0;
+}
+#endif /* ENABLE_VLAN_TAGGING */
+
 /*
  * Process packets in the TUN/TAP interface -> TCP/UDP socket direction,
  * i.e. server -> client direction.
@@ -2325,6 +2479,16 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
        * Route an incoming tun/tap packet to
        * the appropriate multi_instance object.
        */
+
+#ifdef ENABLE_VLAN_TAGGING
+      if (dev_type == DEV_TYPE_TAP && m->top.options.vlan_accept != VAF_RAW)
+        {
+	  if (remove_vlan_tag (&m->top, &m->top.c2.buf) == -1)
+	    {
+	      return false;
+	    }
+        }
+#endif
 
       mroute_flags = mroute_extract_addr_from_packet (&src,
 						      &dest,
