@@ -2117,6 +2117,80 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 }
 
 /*
+ * Removes the VLAN tagging of a frame and returns the frame's VID.  Frames
+ * without tagging are dropped.
+ */
+static int
+remove_vlan_identifier (struct buffer *buf)
+{
+  struct buffer parse_buf = *buf;
+  struct openvpn_ethhdr eth;
+  struct openvpn_vlan_tag vlan_tag;
+
+  if (BLEN (&parse_buf) < (sizeof (struct openvpn_ethhdr) + sizeof (struct openvpn_vlan_tag)))
+    goto err;
+
+  eth = *(const struct openvpn_ethhdr *) BPTR (&parse_buf);
+  buf_advance (&parse_buf, sizeof (struct openvpn_ethhdr));
+
+  if (ntohs (eth.proto) != OPENVPN_ETH_P_VLAN)
+    {
+      /* Drop ethernet II frames */
+      msg (M_INFO, "dropping untagged ethernet frame (proto/len 0x%04x)", ntohs (eth.proto));
+      goto err;
+    }
+
+  /* Ethernet II frame with 802.1Q */
+  vlan_tag = *(const struct openvpn_vlan_tag *) BPTR (&parse_buf);
+  msg (M_INFO, "untagging ethernet frame: vid: %u, wrapped proto/len: 0x%04x", ntohs (vlan_get_vid (&vlan_tag)), ntohs (vlan_tag.proto));
+
+  eth.proto = vlan_tag.proto;
+  buf_advance (buf, sizeof (struct openvpn_vlan_tag));
+  memcpy (BPTR (buf), &eth, sizeof eth);
+
+  return ntohs (vlan_get_vid (&vlan_tag));
+err:
+  /* Drop the frame. */
+  buf->len = 0;
+  return -1;
+}
+
+/*
+ * Adds VLAN tagging to a frame.  Short frames that can't be tagged are
+ * dropped.
+ */
+void
+multi_prepend_vlan_identifier (struct multi_instance *mi, struct buffer *buf)
+{
+  struct openvpn_ethhdr eth;
+  struct buffer construct_buf;
+  struct openvpn_vlan_tag tag;
+
+  /* Frame too small or not enough head room for VLAN tag? */
+  if ((BLEN (buf) < (int) sizeof (struct openvpn_ethhdr)) ||
+      (buf_reverse_capacity (buf) < (int) sizeof (struct openvpn_vlan_tag)))
+    {
+      /* Drop the frame. */
+      buf->len = 0;
+      return;
+    }
+
+  eth = *(const struct openvpn_ethhdr *) BPTR (buf);
+  memset (&tag, 0, sizeof tag);
+  vlan_set_vid (&tag, htons (mi->context.options.vlan_tag));
+  tag.proto = eth.proto;
+  eth.proto = htons (OPENVPN_ETH_P_VLAN);
+
+  buf_prepend (buf, sizeof(struct openvpn_vlan_tag));
+  construct_buf = *buf;
+  construct_buf.len = 0;
+  buf_write (&construct_buf, &eth, sizeof eth);
+  buf_write (&construct_buf, &tag, sizeof tag);
+
+  msg (M_INFO, "tagging ethernet II frame with 802.1Q, vid: %u, len: %d: out dump: %s", mi->context.options.vlan_tag, BLEN (buf), format_hex (BPTR (buf), BLEN (buf), 70, NULL));
+}
+
+/*
  * Process packets in the TUN/TAP interface -> TCP/UDP socket direction,
  * i.e. server -> client direction.
  */
@@ -2157,6 +2231,12 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
        * Route an incoming tun/tap packet to
        * the appropriate multi_instance object.
        */
+
+      if (dev_type == DEV_TYPE_TAP && m->top.c1.tuntap->vlan_tagging)
+        {
+	  if (remove_vlan_identifier (&m->top.c2.buf) == -1)
+	    return false;
+        }
 
       mroute_flags = mroute_extract_addr_from_packet (&src,
 						      &dest,
