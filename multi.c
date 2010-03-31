@@ -1806,7 +1806,21 @@ multi_bcast (struct multi_context *m,
 		}
 #endif
 	      if (vid != 0 && vid != mi->context.options.vlan_tag)
-		continue;
+		{
+		  struct gc_arena gc = gc_new ();
+		  msg (M_INFO, "VLAN: addr[%s]@%d -> client[%s]@%d packet dropped by BCAST VLAN filter",
+		      mroute_addr_print_ex (sender_addr, MAPF_SHOW_ARP, &gc),
+		      vid, mi_prefix (mi), mi->context.options.vlan_tag);
+		  gc_free (&gc);
+		  continue;
+		}
+		{
+		  struct gc_arena gc = gc_new ();
+		  msg (M_INFO, "BCAST: addr[%s]@%d -> client[%s]@%d",
+		      mroute_addr_print_ex (sender_addr, MAPF_SHOW_ARP, &gc),
+		      vid, mi_prefix (mi), mi->context.options.vlan_tag);
+		  gc_free (&gc);
+		}
 	      multi_add_mbuf (m, mi, mb);
 	    }
 	}
