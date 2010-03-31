@@ -54,6 +54,9 @@ is_ipv4 (int tunnel_type, struct buffer *buf)
 	return false;
       eh = (const struct openvpn_ethhdr *) BPTR (buf);
       if (ntohs (eh->proto) == OPENVPN_ETH_P_8021Q) {
+        if (BLEN (buf) < (int)(sizeof (struct openvpn_8021qhdr)
+	    + sizeof (struct openvpn_iphdr)))
+	  return false;
         const struct openvpn_8021qhdr *evh;
         evh = (const struct openvpn_8021qhdr *) BPTR (buf);
         if (ntohs (evh->proto) != OPENVPN_ETH_P_IPV4)
