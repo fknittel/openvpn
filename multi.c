@@ -2143,11 +2143,15 @@ remove_vlan_identifier (struct buffer *buf)
   if (ntohs (vlanhdr.tpid) != OPENVPN_ETH_P_8021Q)
     {
       /* Drop untagged frames */
+      msg (M_INFO, "dropping untagged ethernet frame (proto/len 0x%04x)",
+	   ntohs (vlanhdr.tpid));
       goto err;
     }
 
   /* Ethernet II frame with 802.1Q */
   vid = ntohs (vlan_get_vid (&vlanhdr));
+  msg (M_INFO, "untagging ethernet frame: vid: %u, wrapped proto/len: 0x%04x",
+       vid, ntohs (vlanhdr.proto));
   memcpy (&eth, &vlanhdr, sizeof (eth));
   eth.proto = vlanhdr.proto;
 
@@ -2189,6 +2193,8 @@ multi_prepend_vlan_identifier (struct multi_instance *mi, struct buffer *buf)
 
   ASSERT (p = buf_prepend (buf, SIZE_ETH_TO_8021Q_HDR));
   memcpy (p, &vlanhdr, sizeof vlanhdr);
+
+  msg (M_INFO, "tagging frame with vid %u, type is %04x", mi->context.options.vlan_tag, vlanhdr.proto);
 }
 
 /*
