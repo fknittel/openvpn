@@ -3194,6 +3194,50 @@ other protocols such as ssh.
 
 Not implemented on Windows.
 .\"*********************************************************
+.TP
+.B \-\-vlan\-tagging
+Activate VLAN-tagging and -untagging of packets according to IEEE 802.1Q. This
+only works in
+.B \-\-dev tap
+mode. IEEE 802.1Q specifies an additional VLAN identifier (VID) field in the
+Ethernet header. By enabling the
+.B \-\-vlan\-tagging
+option, the routing space of an OpenVPN server can be split into several
+virtual LANs (VLANs) by associating clients with a particular VID. This is done
+by setting the Port VLAN Identifier (PVID)
+.B \-\-vlan\-pvid v
+for each client.
+
+Packets coming in on the tap device must be VLAN-tagged. The VLAN-tag is
+removed and the packet is then distributed to the clients within the matching
+VID. Packets going out through the tap device get a VLAN-tag inserted, with the
+VID set to the VID of the client that sent the packet. If packets coming in
+from clients are VLAN-tagged, they are dropped.
+
+The filtering of packets takes place in the OpenVPN server. Clients do not
+need support for VLAN tagging.
+
+If you imagine OpenVPN to be a switch, activating
+.B \-\-vlan\-tagging
+causes the tap device to be seen as a VLAN-tagged port ("Admit Only VLAN-tagged
+frames") which accepts all VIDs and each client is seen as a separate
+untagged port ("Admit Only Untagged and Priority-tagged frames"), where
+the PVID matches the value set by the
+.B \-\-vlan\-pvid v
+option.
+.\"*********************************************************
+.TP
+.B \-\-vlan\-pvid v
+Specifies the VLAN identifier a client is associated with. The option is
+only valid if you also activate the global
+.B \-\-vlan\-tagging
+option. Valid values for
+.B v
+start from 1 and go up to 4094. Defaults to 1.
+
+In some switch implementations, the Port VLAN Identifier is also referred
+to as Native VLAN.
+.\"*********************************************************
 .SS Client Mode
 Use client mode when connecting to an OpenVPN server
 which has
