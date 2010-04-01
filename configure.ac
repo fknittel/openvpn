@@ -260,6 +260,12 @@ AC_ARG_ENABLE(
 	[enable_systemd="no"]
 )
 
+AC_ARG_ENABLE(vlan-tagging,
+	[  --disable-vlan-tagging  Disable support for VLAN tagging/untagging],
+	[VLAN_TAGGING="$enableval"],
+	[VLAN_TAGGING="yes"]
+)
+
 AC_ARG_WITH(
 	[special-build],
 	[AS_HELP_STRING([--with-special-build=STRING], [specify special build string])],
@@ -1075,6 +1081,10 @@ if test "${enable_plugin_auth_pam}" = "yes"; then
 		test -z "${LIBPAM_LIBS}" && AC_MSG_ERROR([libpam required but missing])
 		PLUGIN_AUTH_PAM_LIBS="${LIBPAM_LIBS}"
 	fi
+fi
+
+if test "$VLAN_TAGGING" = "yes"; then
+   AC_DEFINE(ENABLE_VLAN_TAGGING, 1, [Enable VLAN tagging/untagging])
 fi
 
 CONFIGURE_DEFINES="`set | grep '^enable_.*=' ; set | grep '^with_.*='`"
