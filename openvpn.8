@@ -3194,6 +3194,75 @@ other protocols such as ssh.
 
 Not implemented on Windows.
 .\"*********************************************************
+.TP
+.B \-\-vlan\-accept raw | tagged | untagged
+Allows the routing space of an OpenVPN server to be split into several virtual
+LANs (VLANs).
+
+Setting this to
+.B tagged
+("Admit Only VLAN-tagged frames") or
+.B untagged
+("Admit Only Untagged and Priority-tagged frames") is only possible in
+.B \-\-dev tap
+mode.
+The default mode is \fB\-\-vlan\-accept raw\fR, in which OpenVPN does no
+parsing and accepts any Ethernet frames.
+
+For the other two modes, the OpenVPN server instance is turned into a switch
+that understands VLAN-tagging. The tap device and each of the connecting
+clients is seen as a port. All clients are untagged ports and the tap device
+is VLAN-tagged or untagged, depending on the
+.B \-\-vlan\-accept
+setting.
+
+Using the
+.B \-\-vlan\-pvid v
+option once per client, each port can be associated with a certain VLAN
+Identifier (VID). Packets can only be distributed between ports with a
+matching VID. Therefore, clients with differing VIDs are completely separated
+from one-another, even if
+.B \-\-client-to-client
+is activated.
+
+The filtering of packets takes place in the OpenVPN server. Clients do not
+need support for VLAN tagging.
+
+Incoming untagged packets from clients are assigned with the client's Port
+VLAN Identifier (PVID) as their VID. In
+.B untagged
+mode, incoming untagged packets on the tap device are similarly associated
+with the
+.I global
+.B \-\-vlan\-pvid
+setting. In
+.B tagged
+mode, any incoming untagged packets are dropped.
+
+In
+.B tagged
+mode, packets going out through the tap device are VLAN-tagged with the
+originating client's VID.
+.\"*********************************************************
+.TP
+.B \-\-vlan\-pvid v
+Specifies which VLAN identifier a "port" is associated with. Not valid in
+.B \-\-vlan\-accept raw
+mode.
+
+In client context, the setting specifies which VLAN identifier a client is
+associated with. In global context, the tap device's VLAN identifier is set.
+The latter only makes sense in
+.B \-\-vlan\-accept untagged
+mode.
+
+Valid values for
+.B v
+go from 1 through to 4094. Defaults to 1.
+
+In some switch implementations, the Port VLAN Identifier is also referred
+to as Native VLAN.
+.\"*********************************************************
 .SS Client Mode
 Use client mode when connecting to an OpenVPN server
 which has
