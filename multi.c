@@ -1924,6 +1924,28 @@ multi_process_post (struct multi_context *m, struct multi_instance *mi, const un
   return ret;
 }
 
+#ifdef ENABLE_VLAN_TAGGING
+bool
+buf_filter_incoming_vlan_tags (const struct buffer *buf)
+{
+  if (BLEN (buf) >= (int) sizeof (struct openvpn_8021qhdr))
+    {
+      const struct openvpn_8021qhdr *vlanhdr = (const struct openvpn_8021qhdr *) BPTR (buf);
+
+      if (ntohs (vlanhdr->tpid) == OPENVPN_ETH_P_8021Q)
+        {
+	  const int16_t vid = vlanhdr_get_vid(vlanhdr);
+	  if (vid != 0)
+	    {
+	      msg (D_VLAN_DEBUG, "dropping tagged incoming frame, vid: %d", vid);
+	      return true;
+	    }
+	}
+    }
+  return false;
+}
+#endif
+
 /*
  * Process packets in the TCP/UDP socket -> TUN/TAP interface direction,
  * i.e. client -> server direction.
@@ -2051,7 +2073,15 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 #endif
 #ifdef ENABLE_VLAN_TAGGING
 	      if (m->top.options.vlan_tagging)
-		vid = c->options.vlan_pvid;
+		{
+		  if (buf_filter_incoming_vlan_tags (&c->c2.to_tun))
+		    {
+		      /* Drop tagged frames. */
+		      c->c2.to_tun.len = 0;
+		    }
+		  else
+		    vid = c->options.vlan_pvid;
+		}
 #endif
 	      /* extract packet source and dest addresses */
 	      mroute_flags = mroute_extract_addr_from_packet (&src,
