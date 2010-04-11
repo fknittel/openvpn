@@ -422,8 +422,7 @@ static const char usage_message[] =
   "                  to a web server at host:port.\n"
 #endif
 #ifdef ENABLE_VLAN_TAGGING
-  "--vlan-accept mode : Set VLAN tagging/untagging mode to either 'raw', 'tagged'\n"
-  "                  or untagged.  Default is 'raw'.\n"
+  "--vlan-accept raw|tagged|untagged|all : Set VLAN tagging mode. Default is 'raw'.\n"
   "--vlan-pvid v   : Sets the Port VLAN Identifier. Defaults to 1.\n"
 #endif
 #endif
@@ -1779,6 +1778,11 @@ options_postprocess_verify_ce (const struct options *options, const struct conne
       if (options->vlan_accept != VAF_RAW && dev != DEV_TYPE_TAP)
 	msg (M_USAGE, "--vlan-accept set to '%s' only works with --dev tap",
 	     print_vlan_accept (options->vlan_accept));
+      if (options->vlan_accept == VAF_RAW)
+	{
+	  if (options->vlan_pvid != defaults.vlan_pvid)
+	    msg (M_USAGE, "--vlan-pvid requires --vlan-accept in non-raw mode");
+	}
 #endif
     }
   else
@@ -5794,7 +5798,7 @@ add_option (struct options *options,
 	}
       else
 	{
-	  msg (msglevel, "--vlan-accept must be 'raw', 'tagged' or 'untagged'");
+	  msg (msglevel, "--vlan-accept must be 'raw', tagged', 'untagged' or 'all'");
 	  goto err;
 	}
     }
