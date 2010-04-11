@@ -167,7 +167,6 @@ struct remote_list
 #ifdef ENABLE_VLAN_TAGGING
 enum vlan_acceptable_frames
 {
-  VAF_RAW = 0,
   VAF_ONLY_VLAN_TAGGED,
   VAF_ONLY_UNTAGGED_OR_PRIORITY,
   VAF_ALL,
@@ -609,6 +608,7 @@ struct options
   uint32_t peer_id;
 
 #ifdef ENABLE_VLAN_TAGGING
+  bool vlan_tagging;
   enum vlan_acceptable_frames vlan_accept;
   int vlan_pvid;
 #endif
