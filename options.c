@@ -422,7 +422,8 @@ static const char usage_message[] =
   "                  to a web server at host:port.\n"
 #endif
 #ifdef ENABLE_VLAN_TAGGING
-  "--vlan-accept raw|tagged|untagged|all : Set VLAN tagging mode. Default is 'raw'.\n"
+  "--vlan-tagging  : Enable VLAN tagging.\n"
+  "--vlan-accept tagged|untagged|all : Set VLAN tagging mode. Default is 'all'.\n"
   "--vlan-pvid v   : Sets the Port VLAN Identifier. Defaults to 1.\n"
 #endif
 #endif
@@ -760,7 +761,7 @@ init_options (struct options *o, const bool init_gc)
   o->pkcs11_pin_cache_period = -1;
 #endif			/* ENABLE_PKCS11 */
 #ifdef ENABLE_VLAN_TAGGING
-  o->vlan_accept = VAF_RAW;
+  o->vlan_accept = VAF_ALL;
   o->vlan_pvid = 1;
 #endif
 }
@@ -963,8 +964,6 @@ print_vlan_accept (enum vlan_acceptable_frames mode)
 {
   switch (mode)
    {
-    case VAF_RAW:
-      return "raw";
     case VAF_ONLY_VLAN_TAGGED:
       return "tagged";
     case VAF_ONLY_UNTAGGED_OR_PRIORITY:
@@ -1035,6 +1034,7 @@ show_p2mp_parms (const struct options *o)
   SHOW_INT (port_share_port);
 #endif
 #ifdef ENABLE_VLAN_TAGGING
+  SHOW_BOOL (vlan_tagging);
   msg (D_SHOW_PARMS, "  vlan_accept = %s", print_vlan_accept (o->vlan_accept));
   SHOW_INT (vlan_pvid);
 #endif
@@ -1775,13 +1775,14 @@ options_postprocess_verify_ce (const struct options *options, const struct conne
 	if ((options->ssl_flags & SSLF_NO_NAME_REMAPPING) && script_method == SM_SYSTEM)
 	  msg (M_USAGE, "--script-security method='system' cannot be combined with --no-name-remapping");
 #ifdef ENABLE_VLAN_TAGGING
-      if (options->vlan_accept != VAF_RAW && dev != DEV_TYPE_TAP)
-	msg (M_USAGE, "--vlan-accept set to '%s' only works with --dev tap",
-	     print_vlan_accept (options->vlan_accept));
-      if (options->vlan_accept == VAF_RAW)
+      if (options->vlan_tagging && dev != DEV_TYPE_TAP)
+	msg (M_USAGE, "--vlan-tagging must be used with --dev tap");
+      if (!options->vlan_tagging)
 	{
+	  if (options->vlan_accept != defaults.vlan_accept)
+	    msg (M_USAGE, "--vlan-accept requires --vlan-tagging");
 	  if (options->vlan_pvid != defaults.vlan_pvid)
-	    msg (M_USAGE, "--vlan-pvid requires --vlan-accept in non-raw mode");
+	    msg (M_USAGE, "--vlan-pvid requires --vlan-tagging");
 	}
 #endif
     }
@@ -1831,9 +1832,8 @@ options_postprocess_verify_ce (const struct options *options, const struct conne
 	msg (M_USAGE, "--port-share requires TCP server mode (--mode server --proto tcp-server)");
 #endif
 #ifdef ENABLE_VLAN_TAGGING
-      if (options->vlan_accept != VAF_RAW)
-	msg (M_USAGE, "--vlan-accept set to '%s' requires --mode server",
-	     print_vlan_accept (options->vlan_accept));
+      if (options->vlan_tagging)
+	msg (M_USAGE, "--vlan-tagging requires --mode server");
 #endif
     }
 #endif /* P2MP_SERVER */
@@ -5777,14 +5777,15 @@ add_option (struct options *options,
     }
 #endif
 #ifdef ENABLE_VLAN_TAGGING
+  else if (streq (p[0], "vlan-tagging"))
+    {
+      VERIFY_PERMISSION (OPT_P_GENERAL);
+      options->vlan_tagging = true;
+    }
   else if (streq (p[0], "vlan-accept") && p[1])
     {
       VERIFY_PERMISSION (OPT_P_GENERAL);
-      if (streq (p[1], "raw"))
-	{
-	  options->vlan_accept = VAF_RAW;
-	}
-      else if (streq (p[1], "tagged"))
+      if (streq (p[1], "tagged"))
 	{
 	  options->vlan_accept = VAF_ONLY_VLAN_TAGGED;
 	}
@@ -5798,7 +5799,7 @@ add_option (struct options *options,
 	}
       else
 	{
-	  msg (msglevel, "--vlan-accept must be 'raw', tagged', 'untagged' or 'all'");
+	  msg (msglevel, "--vlan-accept must be 'tagged', 'untagged' or 'all'");
 	  goto err;
 	}
     }
