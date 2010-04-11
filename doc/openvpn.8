@@ -3583,26 +3583,11 @@ connection is torn down.
 Not implemented on Windows.
 .\"*********************************************************
 .TP
-.B \-\-vlan\-accept raw | tagged | untagged | all
-Allows the routing space of an OpenVPN server to be split into several virtual
-LANs (VLANs).
-
-Setting this to
-.B tagged
-("Admit Only VLAN-tagged frames"),
-.B untagged
-("Admit Only Untagged and Priority-tagged frames") or
-.B all
-("Admit All frames") is only possible in
-.B \-\-dev tap
-mode.
-The default mode is \fB\-\-vlan\-accept raw\fR, in which OpenVPN does no
-parsing and accepts any Ethernet frames.
-
-For the other three modes, the OpenVPN server instance is turned into a switch
-that understands VLAN-tagging. The tap device and each of the connecting
-clients is seen as a port of the switch. All client ports are in untagged mode
-and the tap device is VLAN-tagged, untagged or accepts both, depending on the
+.B \-\-vlan\-tagging
+Turns the OpenVPN server instance into a switch that understands VLAN-tagging.
+The tap device and each of the connecting clients is seen as a port of the
+switch. All client ports are in untagged mode and the tap device is
+VLAN-tagged, untagged or accepts both, depending on the
 .B \-\-vlan\-accept
 setting.
 
@@ -3617,6 +3602,27 @@ is activated.
 
 The filtering of packets takes place in the OpenVPN server. Clients do not
 need support for VLAN tagging.
+
+The
+.B \-\-vlan\-tagging
+option is off by default. While turned off, OpenVPN
+does no parsing and accepts any Ethernet frames.
+
+The option can only be activated in
+.B \-\-dev tap
+mode.
+
+.\"*********************************************************
+.TP
+.B \-\-vlan\-accept tagged | untagged | all
+Allows the tap device's VLAN tagging policy to be configured. You can choose
+between
+.B tagged
+("Admit Only VLAN-tagged frames"),
+.B untagged
+("Admit Only Untagged and Priority-tagged frames") or
+.B all
+("Admit All frames") mode.
 
 Incoming untagged packets from clients are assigned with the client's Port
 VLAN Identifier (PVID) as their VID. In
@@ -3641,12 +3647,13 @@ mode. Incoming untagged packets are handled as in
 .B untagged
 mode. Outgoing packets are tagged, unless the VID matches the global PVID, in
 which case the packets go out untagged.
+
+Defaults to \fB\-\-vlan\-accept all\fR.
 .\"*********************************************************
 .TP
 .B \-\-vlan\-pvid v
-Specifies which VLAN identifier a "port" is associated with. Not valid in
-.B \-\-vlan\-accept raw
-mode.
+Specifies which VLAN identifier a "port" is associated with. Not valid without
+\fB\-\-vlan\-tagging\fR.
 
 In client context, the setting specifies which VLAN identifier a client is
 associated with. In global context, the tap device's VLAN identifier is set.

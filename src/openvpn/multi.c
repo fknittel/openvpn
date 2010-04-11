@@ -2240,7 +2240,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 	      mroute_addr_reset (&edest);
 #endif
 #ifdef ENABLE_VLAN_TAGGING
-	      if (m->top.options.vlan_accept != VAF_RAW)
+	      if (m->top.options.vlan_tagging)
 		{
 		  if (buf_filter_incoming_vlan_tags (&c->c2.to_tun))
 		    {
@@ -2532,7 +2532,7 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
        */
 
 #ifdef ENABLE_VLAN_TAGGING
-      if (dev_type == DEV_TYPE_TAP && m->top.options.vlan_accept != VAF_RAW)
+      if (dev_type == DEV_TYPE_TAP && m->top.options.vlan_tagging)
         {
 	  if ((vid = remove_vlan_tag (&m->top, &m->top.c2.buf)) == -1)
 	    {
