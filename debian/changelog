@@ -1,3 +1,12 @@
+openvpn (2.1.0+git-1.1) UNRELEASED; urgency=low
+
+  * Non-maintainer upload.
+  * Built from e8b61cdf1c5a39d0de39fa36ea9d5fe56a00798b / feat_vlan.
+  * Disable jjo-ipv6-support.patch.  Does not apply and is not needed for
+    our scenario.
+
+ -- Philipp Kern <pkern@debian.org>  Mon, 12 Apr 2010 18:25:28 +0200
+
 openvpn (2.1.0-1) unstable; urgency=low
 
   * New upstream release
