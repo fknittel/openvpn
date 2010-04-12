@@ -164,6 +164,16 @@ struct remote_list
   struct remote_entry *array[CONNECTION_LIST_SIZE];
 };
 
+#ifdef ENABLE_VLAN_TAGGING
+enum vlan_acceptable_frames
+{
+  VAF_RAW = 0,
+  VAF_ONLY_VLAN_TAGGED,
+  VAF_ONLY_UNTAGGED_OR_PRIORITY,
+  VAF_ALL,
+};
+#endif
+
 struct remote_host_store
 {
 # define RH_HOST_LEN 80
@@ -597,6 +607,10 @@ struct options
 
   bool use_peer_id;
   uint32_t peer_id;
+
+#ifdef ENABLE_VLAN_TAGGING
+  enum vlan_acceptable_frames vlan_accept;
+#endif
 };
 
 #define streq(x, y) (!strcmp((x), (y)))
