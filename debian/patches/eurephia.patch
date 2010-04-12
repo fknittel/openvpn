@@ -1,0 +1,81 @@
+Index: openvpn-2.1~rc22/README.eurephia
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ openvpn-2.1~rc22/README.eurephia	2009-12-04 17:00:48.412768130 +0100
+@@ -0,0 +1,24 @@
++
++  OpenVPN - eurephia version
++==============================
++
++This is the official OpenVPN version, patched with a
++patch to implement one needed feature for the eurephia
++plug-in.
++
++All this patch does is to provide the plug-in environment
++with a variable containing the SHA1 hash of the
++certificates in use for the session.
++
++eurephia is an authentication and security plug-in which
++enhances the security in OpenVPN even more.  It provides
++user name/password authentication, automatic blacklisting
++of user account, certificates and IP addresses.  In
++provides in addition automatic updates of the iptables
++firewall on Linux, with specific iptables profile per
++user and certificate.
++
++For more information about eurephia, have a look at:
++
++             http://www.eurephia.net/
++
+Index: openvpn-2.1~rc22/options.c
+===================================================================
+--- openvpn-2.1~rc22.orig/options.c	2009-12-04 17:00:48.271809191 +0100
++++ openvpn-2.1~rc22/options.c	2009-12-04 17:00:48.417769526 +0100
+@@ -7,6 +7,9 @@
+  *
+  *  Copyright (C) 2002-2009 OpenVPN Technologies, Inc. <sales@openvpn.net>
+  *
++ *  Additions for eurephia plugin done by:
++ *         David Sommerseth <dazo@users.sourceforge.net> Copyright (C) 2009
++ *
+  *  This program is free software; you can redistribute it and/or modify
+  *  it under the terms of the GNU General Public License version 2
+  *  as published by the Free Software Foundation.
+@@ -79,6 +82,7 @@
+ #ifdef USE_PF_INET6
+   " [PF_INET6]"
+ #endif
++  " [eurephia]"
+   " built on " __DATE__
+ ;
+ 
+Index: openvpn-2.1~rc22/ssl.c
+===================================================================
+--- openvpn-2.1~rc22.orig/ssl.c	2009-11-12 21:30:36.000000000 +0100
++++ openvpn-2.1~rc22/ssl.c	2009-12-04 17:00:48.427767013 +0100
+@@ -7,6 +7,10 @@
+  *
+  *  Copyright (C) 2002-2009 OpenVPN Technologies, Inc. <sales@openvpn.net>
+  *
++ *  Additions for eurephia plugin done by:
++ *         David Sommerseth <dazo@users.sourceforge.net> Copyright (C) 2008-2009
++ *
++ *
+  *  This program is free software; you can redistribute it and/or modify
+  *  it under the terms of the GNU General Public License version 2
+  *  as published by the Free Software Foundation.
+@@ -780,6 +784,14 @@
+   openvpn_snprintf (envname, sizeof(envname), "tls_id_%d", ctx->error_depth);
+   setenv_str (opt->es, envname, subject);
+ 
++  /* export X509 cert SHA1 fingerprint */
++  {
++    struct gc_arena gc = gc_new ();
++    openvpn_snprintf (envname, sizeof(envname), "tls_digest_%d", ctx->error_depth);
++    setenv_str (opt->es, envname,
++		format_hex_ex(ctx->current_cert->sha1_hash, SHA_DIGEST_LENGTH, 0, 1, ":", &gc));
++    gc_free(&gc);
++  }
+ #if 0
+   /* export common name string as environmental variable */
+   openvpn_snprintf (envname, sizeof(envname), "tls_common_name_%d", ctx->error_depth);
