@@ -484,6 +484,9 @@ static const char usage_message[] =
     "                  sessions to a web server at host:port.  dir specifies an\n"
     "                  optional directory to write origin IP:port data.\n"
 #endif
+#ifdef ENABLE_VLAN_TAGGING
+    "--vlan-accept raw|tagged|untagged|all : Set VLAN tagging mode. Default is 'raw'.\n"
+#endif
 #endif /* if P2MP_SERVER */
     "\n"
     "Client options (when connecting to a multi-client server):\n"
@@ -876,6 +879,9 @@ init_options(struct options *o, const bool init_gc)
 #ifdef ENABLE_PKCS11
     o->pkcs11_pin_cache_period = -1;
 #endif                  /* ENABLE_PKCS11 */
+#ifdef ENABLE_VLAN_TAGGING
+    o->vlan_accept = VAF_RAW;
+#endif
 
 /* P2MP server context features */
 #if P2MP_SERVER
@@ -1267,6 +1273,28 @@ dhcp_option_address_parse(const char *name, const char *parm, in_addr_t *array, 
 
 #endif /* if defined(_WIN32) || defined(TARGET_ANDROID) */
 
+#ifdef ENABLE_VLAN_TAGGING
+static const char *
+print_vlan_accept(enum vlan_acceptable_frames mode)
+{
+    switch (mode)
+    {
+        case VAF_RAW:
+            return "raw";
+
+        case VAF_ONLY_VLAN_TAGGED:
+            return "tagged";
+
+        case VAF_ONLY_UNTAGGED_OR_PRIORITY:
+            return "untagged";
+
+        case VAF_ALL:
+            return "all";
+    }
+    return NULL;
+}
+#endif
+
 #if P2MP
 
 #ifndef ENABLE_SMALL
@@ -1335,6 +1363,9 @@ show_p2mp_parms(const struct options *o)
 #if PORT_SHARE
     SHOW_STR(port_share_host);
     SHOW_STR(port_share_port);
+#endif
+#ifdef ENABLE_VLAN_TAGGING
+    msg(D_SHOW_PARMS, "  vlan_accept = %s", print_vlan_accept(o->vlan_accept));
 #endif
 #endif /* P2MP_SERVER */
 
@@ -2374,6 +2405,13 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         {
             msg(M_USAGE, "--mode server requires --key-method 2");
         }
+#ifdef ENABLE_VLAN_TAGGING
+        if (options->vlan_accept != VAF_RAW && dev != DEV_TYPE_TAP)
+        {
+	    msg(M_USAGE, "--vlan-accept set to '%s' only works with --dev tap",
+	        print_vlan_accept(options->vlan_accept));
+        }
+#endif
 
         {
             const bool ccnr = (options->auth_user_pass_verify_script
@@ -2475,6 +2513,13 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         if (options->port_share_host || options->port_share_port)
         {
             msg(M_USAGE, "--port-share requires TCP server mode (--mode server --proto tcp-server)");
+        }
+#endif
+#ifdef ENABLE_VLAN_TAGGING
+        if (options->vlan_accept != VAF_RAW)
+        {
+            msg(M_USAGE, "--vlan-accept set to '%s' requires --mode server",
+                print_vlan_accept(options->vlan_accept));
         }
 #endif
 
@@ -8322,6 +8367,33 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->allow_recursive_routing = true;
     }
+#ifdef ENABLE_VLAN_TAGGING
+    else if (streq(p[0], "vlan-accept") && p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        if (streq(p[1], "raw"))
+        {
+          options->vlan_accept = VAF_RAW;
+        }
+        else if (streq(p[1], "tagged"))
+        {
+          options->vlan_accept = VAF_ONLY_VLAN_TAGGED;
+        }
+        else if (streq(p[1], "untagged"))
+        {
+          options->vlan_accept = VAF_ONLY_UNTAGGED_OR_PRIORITY;
+        }
+        else if (streq(p[1], "all"))
+        {
+          options->vlan_accept = VAF_ALL;
+        }
+        else
+        {
+          msg(msglevel, "--vlan-accept must be 'raw', tagged', 'untagged' or 'all'");
+          goto err;
+        }
+    }
+#endif
     else
     {
         int i;
