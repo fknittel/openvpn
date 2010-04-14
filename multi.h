@@ -50,6 +50,14 @@ struct multi_reap
   time_t last_call;
 };
 
+struct client_connect_state
+{
+  int cur_handler_idx;
+  bool succeeded;
+  int succeeded_count;
+  unsigned int option_types_found;
+};
+
 /*
  * One multi_instance object per client instance.
  */
@@ -85,6 +93,8 @@ struct multi_instance {
   bool did_iroutes;
   int n_clients_delta; /* added to multi_context.n_clients when instance is closed */
 
+  struct client_connect_state *client_connect_state;
+
   struct context context;
 };
 
@@ -92,6 +102,7 @@ enum client_connect_return
 {
   CC_RET_FAILED,
   CC_RET_SUCCEEDED,
+  CC_RET_DEFERRED,
   CC_RET_SKIPPED
 };
 
