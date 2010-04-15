@@ -1792,6 +1792,7 @@ multi_client_connect_call_plugin_v1 (struct multi_context *m,
 {
   enum client_connect_return ret = CC_RET_SKIPPED;
 #ifdef ENABLE_PLUGIN
+  struct client_connect_state *ccs = mi->client_connect_state;
   ASSERT (m);
   ASSERT (mi);
   ASSERT (option_types_found);
@@ -1799,34 +1800,41 @@ multi_client_connect_call_plugin_v1 (struct multi_context *m,
   if (plugin_defined (mi->context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT))
     {
       int plug_ret;
-      struct gc_arena gc = gc_new ();
       struct argv argv = argv_new ();
-      const char *dc_file = create_temp_file (mi->context.options.tmp_dir, "cc", &gc);
 
-      if (!dc_file)
+      if (!ccs_gen_config_file (mi) ||
+	  !ccs_gen_deferred_ret_file (mi))
 	{
 	  ret = CC_RET_FAILED;
 	  goto script_depr_failed;
 	}
 
-      argv_printf (&argv, "%s", dc_file);
+      argv_printf (&argv, "%s", ccs->config_file);
 
       plug_ret = plugin_call (mi->context.plugins,
 			      OPENVPN_PLUGIN_CLIENT_CONNECT,
 			      &argv, NULL, mi->context.c2.es);
       argv_reset (&argv);
-      if (plug_ret != OPENVPN_PLUGIN_FUNC_SUCCESS)
+      if (plug_ret == OPENVPN_PLUGIN_FUNC_SUCCESS)
+	{
+	  multi_client_connect_post (m, mi, ccs->config_file,
+				     option_types_found);
+	  ret = CC_RET_SUCCEEDED;
+	}
+      else if (plug_ret == OPENVPN_PLUGIN_FUNC_DEFERRED)
+	ret = CC_RET_DEFERRED;
+      else
 	{
 	  msg (M_WARN, "WARNING: client-connect plugin call failed");
 	  ret = CC_RET_FAILED;
 	}
-      else
-	{
-	  multi_client_connect_post (m, mi, dc_file, option_types_found);
-	  ret = CC_RET_SUCCEEDED;
-	}
+
 script_depr_failed:
-      gc_free (&gc);
+      if (ret != CC_RET_DEFERRED)
+	{
+	  ccs_delete_config_file (mi);
+	  ccs_delete_deferred_ret_file (mi);
+	}
     }
 #endif
   return ret;
@@ -2118,7 +2126,7 @@ static const struct client_connect_handlers client_connect_handlers[] = {
   },
   {
     main: multi_client_connect_call_plugin_v1,
-    deferred: multi_client_connect_fail
+    deferred: multi_client_handle_deferred
   },
   {
     main: multi_client_connect_call_plugin_v2,
