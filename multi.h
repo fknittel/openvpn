@@ -56,6 +56,9 @@ struct client_connect_state
   bool succeeded;
   int succeeded_count;
   unsigned int option_types_found;
+
+  char *deferred_ret_file;
+  char *config_file;
 };
 
 /*
