@@ -1,4 +1,12 @@
-openvpn (2.1.0+git-1.1) UNRELEASED; urgency=low
+openvpn (2.1.0+git-1.2) local; urgency=low
+
+  * Non-maintainer upload.
+  * Built from 18a2dc25c75227906335441a0a6be162677898bb.
+  * Merged asynchronous client connect.
+
+ -- Philipp Kern <pkern@debian.org>  Wed, 21 Apr 2010 17:25:26 +0200
+
+openvpn (2.1.0+git-1.1) local; urgency=low
 
   * Non-maintainer upload.
   * Built from e8b61cdf1c5a39d0de39fa36ea9d5fe56a00798b / feat_vlan.
