@@ -2186,24 +2186,33 @@ done:
 }
 
 #ifdef ENABLE_VLAN_TAGGING
-bool
+/*
+ * Decides whether or not to drop an ethernet frame.  VLAN-tagged frames are
+ * dropped.  All other frames are accepted.
+ *
+ * @param buf The ethernet frame.
+ * @return    Returns true if the frame should be dropped, false otherwise.
+ */
+static bool
 buf_filter_incoming_vlan_tags (const struct buffer *buf)
 {
-  if (BLEN (buf) >= (int) sizeof (struct openvpn_8021qhdr))
-    {
-      const struct openvpn_8021qhdr *vlanhdr = (const struct openvpn_8021qhdr *) BPTR (buf);
+  const struct openvpn_8021qhdr *vlanhdr;
+  uint16_t vid;
 
-      if (ntohs (vlanhdr->tpid) == OPENVPN_ETH_P_8021Q)
-        {
-	  const uint16_t vid = vlanhdr_get_vid(vlanhdr);
-	  if (vid != 0)
-	    {
-	      msg (D_VLAN_DEBUG, "dropping tagged incoming frame, vid: %u", vid);
-	      return true;
-	    }
-	}
-    }
-  return false;
+  if (BLEN (buf) < (int) sizeof (struct openvpn_8021qhdr))
+    return false; /* Frame too small.  */
+
+  vlanhdr = (const struct openvpn_8021qhdr *) BPTR (buf);
+
+  if (ntohs (vlanhdr->tpid) != OPENVPN_ETH_P_8021Q)
+    return false; /* Frame is untagged.  */
+
+  vid = vlanhdr_get_vid(vlanhdr);
+  if (vid == 0)
+    return false; /* Frame only priority-tagged.  */
+
+  msg (D_VLAN_DEBUG, "dropping VLAN-tagged incoming frame, vid: %u", vid);
+  return true;
 }
 #endif
 
