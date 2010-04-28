@@ -212,7 +212,7 @@ mroute_extract_addr_ipv4 (struct mroute_addr *src,
 
 static void mroute_copy_ether_to_addr(struct mroute_addr *maddr,
 				      const uint8_t *eth_addr,
-				      int16_t vid)
+				      uint16_t vid)
 {
   maddr->type = MR_ADDR_ETHER;
   maddr->netbits = 0;
@@ -231,7 +231,7 @@ mroute_extract_addr_ether (struct mroute_addr *src,
 			   struct mroute_addr *esrc,
 			   struct mroute_addr *edest,
 			   const struct buffer *buf,
-			   int16_t vid)
+			   uint16_t vid)
 {
   unsigned int ret = 0;
   if (BLEN (buf) >= (int) sizeof (struct openvpn_ethhdr))
@@ -411,7 +411,7 @@ mroute_addr_print_ex (const struct mroute_addr *ma,
 	case MR_ADDR_ETHER:
 	  buf_printf (&out, "%s", format_hex_ex (ma->addr, 6, 0, 1, ":", gc)); 
 #ifdef ENABLE_VLAN_TAGGING
-	  buf_printf (&out, "@%d", *(int16_t*)(ma->addr + 6));
+	  buf_printf (&out, "@%u", *(uint16_t*)(ma->addr + 6));
 #endif
 	  break;
 	case MR_ADDR_IPV4:
