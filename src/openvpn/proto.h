@@ -262,7 +262,7 @@ void ipv4_packet_size_verify (const uint8_t *data,
 /*
  * Retrieve the Priority Code Point (PCP) from the IEEE 802.1Q header.
  */
-static inline int
+static inline uint16_t
 vlanhdr_get_pcp (const struct openvpn_8021qhdr *hdr)
 {
   return hdr->pcp_cfi_vid & OPENVPN_8021Q_MASK_PCP;
@@ -270,7 +270,7 @@ vlanhdr_get_pcp (const struct openvpn_8021qhdr *hdr)
 /*
  * Retrieve the Canonical Format Indicator (CFI) from the IEEE 802.1Q header.
  */
-static inline int
+static inline uint16_t
 vlanhdr_get_cfi (const struct openvpn_8021qhdr *hdr)
 {
   return hdr->pcp_cfi_vid & OPENVPN_8021Q_MASK_CFI;
@@ -278,7 +278,7 @@ vlanhdr_get_cfi (const struct openvpn_8021qhdr *hdr)
 /*
  * Retrieve the VLAN Identifier (VID) from the IEEE 802.1Q header.
  */
-static inline int
+static inline uint16_t
 vlanhdr_get_vid (const struct openvpn_8021qhdr *hdr)
 {
   return hdr->pcp_cfi_vid & OPENVPN_8021Q_MASK_VID;
@@ -288,7 +288,7 @@ vlanhdr_get_vid (const struct openvpn_8021qhdr *hdr)
  * Set the Priority Code Point (PCP) in an IEEE 802.1Q header.
  */
 static inline void
-vlanhdr_set_pcp (struct openvpn_8021qhdr *hdr, const int pcp)
+vlanhdr_set_pcp (struct openvpn_8021qhdr *hdr, const uint16_t pcp)
 {
   hdr->pcp_cfi_vid = (hdr->pcp_cfi_vid & ~OPENVPN_8021Q_MASK_PCP) | (pcp & OPENVPN_8021Q_MASK_PCP);
 }
@@ -296,7 +296,7 @@ vlanhdr_set_pcp (struct openvpn_8021qhdr *hdr, const int pcp)
  * Set the Canonical Format Indicator (CFI) in an IEEE 802.1Q header.
  */
 static inline void
-vlanhdr_set_cfi (struct openvpn_8021qhdr *hdr, const int cfi)
+vlanhdr_set_cfi (struct openvpn_8021qhdr *hdr, const uint16_t cfi)
 {
   hdr->pcp_cfi_vid = (hdr->pcp_cfi_vid & ~OPENVPN_8021Q_MASK_CFI) | (cfi & OPENVPN_8021Q_MASK_CFI);
 }
@@ -304,7 +304,7 @@ vlanhdr_set_cfi (struct openvpn_8021qhdr *hdr, const int cfi)
  * Set the VLAN Identifier (VID) in an IEEE 802.1Q header.
  */
 static inline void
-vlanhdr_set_vid (struct openvpn_8021qhdr *hdr, const int vid)
+vlanhdr_set_vid (struct openvpn_8021qhdr *hdr, const uint16_t vid)
 {
   hdr->pcp_cfi_vid = (hdr->pcp_cfi_vid & ~OPENVPN_8021Q_MASK_VID) | (vid & OPENVPN_8021Q_MASK_VID);
 }

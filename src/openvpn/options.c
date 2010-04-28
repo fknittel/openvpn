@@ -7138,7 +7138,7 @@ add_option (struct options *options,
       if (options->vlan_pvid < OPENVPN_8021Q_MIN_VID ||
 	  options->vlan_pvid > OPENVPN_8021Q_MAX_VID)
 	{
-	  msg (msglevel, "the parameter of --vlan-pvid parameters must be >= %d and <= %d", OPENVPN_8021Q_MIN_VID, OPENVPN_8021Q_MAX_VID);
+	  msg (msglevel, "the parameter of --vlan-pvid parameters must be >= %u and <= %u", OPENVPN_8021Q_MIN_VID, OPENVPN_8021Q_MAX_VID);
 	  goto err;
 	}
     }
