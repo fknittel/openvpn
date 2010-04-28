@@ -258,7 +258,7 @@ AC_ARG_ENABLE(
 )
 
 AC_ARG_ENABLE(vlan-tagging,
-	[  --disable-vlan-tagging  Disable support for VLAN tagging/untagging],
+	[  --disable-vlan-tagging  Disable support for 802.1Q-based VLAN tagging],
 	[VLAN_TAGGING="$enableval"],
 	[VLAN_TAGGING="yes"]
 )
@@ -1167,7 +1167,7 @@ if test "${enable_plugin_auth_pam}" = "yes"; then
 fi
 
 if test "$VLAN_TAGGING" = "yes"; then
-   AC_DEFINE(ENABLE_VLAN_TAGGING, 1, [Enable VLAN tagging/untagging])
+   AC_DEFINE(ENABLE_VLAN_TAGGING, 1, [Enable 802.1Q-based VLAN tagging/untagging])
 fi
 
 CONFIGURE_DEFINES="`set | grep '^enable_.*=' ; set | grep '^with_.*='`"
