@@ -2207,7 +2207,7 @@ buf_filter_incoming_vlan_tags (const struct buffer *buf)
   if (ntohs (vlanhdr->tpid) != OPENVPN_ETH_P_8021Q)
     return false; /* Frame is untagged.  */
 
-  vid = vlanhdr_get_vid(vlanhdr);
+  vid = vlanhdr_get_vid (vlanhdr);
   if (vid == 0)
     return false; /* Frame only priority-tagged.  */
 
@@ -2516,8 +2516,8 @@ remove_vlan_tag (const struct context *c, struct buffer *buf)
 
   /* Tagged packet. */
 
-  vid = ntohs (vlanhdr_get_vid (&vlanhdr));
-  pcp = ntohs (vlanhdr_get_pcp (&vlanhdr));
+  vid = vlanhdr_get_vid (&vlanhdr);
+  pcp = vlanhdr_get_pcp (&vlanhdr);
 
   if (c->options.vlan_accept == VAF_ONLY_UNTAGGED_OR_PRIORITY)
     {
@@ -2553,7 +2553,7 @@ remove_vlan_tag (const struct context *c, struct buffer *buf)
 	 of the header intact. */
       msg (D_VLAN_DEBUG, "removing vlan-tag from priority frame: vid: %u, wrapped proto/len: 0x%04x, prio: %u",
            vid, ntohs (vlanhdr.proto), pcp);
-      vlanhdr_set_vid (&vlanhdr, htons (0));
+      vlanhdr_set_vid (&vlanhdr, 0);
       memcpy (BPTR (buf), &vlanhdr, sizeof vlanhdr);
     }
 
@@ -2603,11 +2603,11 @@ multi_prepend_vlan_tag (const struct context *c, struct buffer *buf)
       memcpy (vlanhdr, &eth, sizeof eth);
       vlanhdr->tpid = htons (OPENVPN_ETH_P_8021Q);
       vlanhdr->proto = eth.proto;
-      vlanhdr_set_pcp (vlanhdr, htons (0));
-      vlanhdr_set_cfi (vlanhdr, htons (0));
+      vlanhdr_set_pcp (vlanhdr, 0);
+      vlanhdr_set_cfi (vlanhdr, 0);
     }
 
-  vlanhdr_set_vid (vlanhdr, htons (c->options.vlan_pvid));
+  vlanhdr_set_vid (vlanhdr, c->options.vlan_pvid);
 
   msg (D_VLAN_DEBUG, "tagging frame: vid %u (wrapping proto/len: %04x)",
        c->options.vlan_pvid, vlanhdr->proto);
