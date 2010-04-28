@@ -1929,7 +1929,7 @@ multi_bcast (struct multi_context *m,
 	     const struct buffer *buf,
 	     const struct multi_instance *sender_instance,
 	     const struct mroute_addr *sender_addr,
-	     int16_t vid)
+	     uint16_t vid)
 {
   struct hash_iterator hi;
   struct hash_element *he;
@@ -2102,10 +2102,10 @@ buf_filter_incoming_vlan_tags (const struct buffer *buf)
 
       if (ntohs (vlanhdr->tpid) == OPENVPN_ETH_P_8021Q)
         {
-	  const int16_t vid = vlanhdr_get_vid(vlanhdr);
+	  const uint16_t vid = vlanhdr_get_vid(vlanhdr);
 	  if (vid != 0)
 	    {
-	      msg (D_VLAN_DEBUG, "dropping tagged incoming frame, vid: %d", vid);
+	      msg (D_VLAN_DEBUG, "dropping tagged incoming frame, vid: %u", vid);
 	      return true;
 	    }
 	}
@@ -2231,9 +2231,9 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 	  else if (TUNNEL_TYPE (m->top.c1.tuntap) == DEV_TYPE_TAP)
 	    {
 #ifdef ENABLE_VLAN_TAGGING
-	      int16_t vid = 0;
+	      uint16_t vid = 0;
 #else
-	      const int16_t vid = 0;
+	      const uint16_t vid = 0;
 #endif
 #ifdef ENABLE_PF
 	      struct mroute_addr edest;
@@ -2353,8 +2353,8 @@ remove_vlan_tag (const struct context *c, struct buffer *buf)
 {
   struct openvpn_ethhdr eth;
   struct openvpn_8021qhdr vlanhdr;
-  int16_t vid;
-  int16_t pcp;
+  uint16_t vid;
+  uint16_t pcp;
 
   if (BLEN (buf) < (sizeof (struct openvpn_8021qhdr)))
     goto drop;
@@ -2374,7 +2374,7 @@ remove_vlan_tag (const struct context *c, struct buffer *buf)
 	  goto drop;
 	}
 
-      msg (D_VLAN_DEBUG, "assuming pvid for frame without vlan-tag, pvid: %d (proto/len 0x%04x)",
+      msg (D_VLAN_DEBUG, "assuming pvid for frame without vlan-tag, pvid: %u (proto/len 0x%04x)",
 	   c->options.vlan_pvid, ntohs (vlanhdr.tpid));
       /* We return the global PVID as the VID for the untagged frame. */
       return c->options.vlan_pvid;
@@ -2391,7 +2391,7 @@ remove_vlan_tag (const struct context *c, struct buffer *buf)
 	{
 	  /* We only accept untagged frames or priority-tagged frames. So drop
 	     VLAN-tagged frames. */
-	  msg (D_VLAN_DEBUG, "dropping frame with vlan-tag, vid: %d (proto/len 0x%04x)",
+	  msg (D_VLAN_DEBUG, "dropping frame with vlan-tag, vid: %u (proto/len 0x%04x)",
 	       vid, ntohs (vlanhdr.proto));
 	  goto drop;
 	}
@@ -2404,7 +2404,7 @@ remove_vlan_tag (const struct context *c, struct buffer *buf)
     {
       /* VLAN-tagged without priority information. */
 
-      msg (D_VLAN_DEBUG, "removing vlan-tag from frame: vid: %d, wrapped proto/len: 0x%04x",
+      msg (D_VLAN_DEBUG, "removing vlan-tag from frame: vid: %u, wrapped proto/len: 0x%04x",
            vid, ntohs (vlanhdr.proto));
       memcpy (&eth, &vlanhdr, sizeof (eth));
       eth.proto = vlanhdr.proto;
@@ -2417,7 +2417,7 @@ remove_vlan_tag (const struct context *c, struct buffer *buf)
       /* VLAN-tagged _with_ priority information.  We turn this frame into
 	 a pure priority frame.  I.e. we clear out the VID but leave the rest
 	 of the header intact. */
-      msg (D_VLAN_DEBUG, "removing vlan-tag from priority frame: vid: %d, wrapped proto/len: 0x%04x, prio: %d",
+      msg (D_VLAN_DEBUG, "removing vlan-tag from priority frame: vid: %u, wrapped proto/len: 0x%04x, prio: %u",
            vid, ntohs (vlanhdr.proto), pcp);
       vlanhdr_set_vid (&vlanhdr, htons (0));
       memcpy (BPTR (buf), &vlanhdr, sizeof vlanhdr);
@@ -2475,7 +2475,7 @@ multi_prepend_vlan_tag (const struct context *c, struct buffer *buf)
 
   vlanhdr_set_vid (vlanhdr, htons (c->options.vlan_pvid));
 
-  msg (D_VLAN_DEBUG, "tagging frame: vid %d (wrapping proto/len: %04x)",
+  msg (D_VLAN_DEBUG, "tagging frame: vid %u (wrapping proto/len: %04x)",
        c->options.vlan_pvid, vlanhdr->proto);
   return;
 drop:
