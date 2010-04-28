@@ -258,7 +258,7 @@ AC_ARG_ENABLE(
 
 AC_ARG_ENABLE(
 	[vlan-tagging],
-	[AS_HELP_STRING([--disable-vlan-tagging], [enable async-push support for plugins providing deferred authentication @<:@default=no@:>@])],
+	[AS_HELP_STRING([--disable-vlan-tagging], [disable support for 802.1Q-based VLAN tagging @<:@default=yes@:>@])],
 	,
 	[enable_vlan_tagging="yes"]
 )
@@ -1320,7 +1320,7 @@ if test "${enable_async_push}" = "yes"; then
 fi
 
 if test "${enable_vlan_tagging}" = "yes"; then
-	AC_DEFINE([ENABLE_VLAN_TAGGING], [1], [Enable VLAN tagging/untagging])
+	AC_DEFINE([ENABLE_VLAN_TAGGING], [1], [Enable 802.1Q-based VLAN tagging/untagging])
 fi
 
 CONFIGURE_DEFINES="`set | grep '^enable_.*=' ; set | grep '^with_.*='`"
