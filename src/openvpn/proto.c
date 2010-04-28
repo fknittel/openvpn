@@ -61,10 +61,10 @@ is_ipv_X ( int tunnel_type, struct buffer *buf, int ip_ver )
 	return false;
       eh = (const struct openvpn_ethhdr *) BPTR (buf);
       if (ntohs (eh->proto) == OPENVPN_ETH_P_8021Q) {
+        const struct openvpn_8021qhdr *evh;
         if (BLEN (buf) < (int)(sizeof (struct openvpn_8021qhdr)
 	    + sizeof (struct openvpn_iphdr)))
 	  return false;
-        const struct openvpn_8021qhdr *evh;
         evh = (const struct openvpn_8021qhdr *) BPTR (buf);
         if (ntohs (evh->proto) !=
 	    (ip_ver == 6 ? OPENVPN_ETH_P_IPV6 : OPENVPN_ETH_P_IPV4))
