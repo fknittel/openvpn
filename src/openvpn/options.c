@@ -482,7 +482,7 @@ static const char usage_message[] =
   "                  optional directory to write origin IP:port data.\n"
 #endif
 #ifdef ENABLE_VLAN_TAGGING
-  "--vlan-tagging  : Enable VLAN tagging.\n"
+  "--vlan-tagging  : Enable 802.1Q-based VLAN tagging.\n"
   "--vlan-accept tagged|untagged|all : Set VLAN tagging mode. Default is 'all'.\n"
   "--vlan-pvid v   : Sets the Port VLAN Identifier. Defaults to 1.\n"
 #endif
