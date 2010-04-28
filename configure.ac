@@ -213,7 +213,7 @@ AC_ARG_ENABLE(selinux,
 )
 
 AC_ARG_ENABLE(vlan-tagging,
-   [  --disable-vlan-tagging  Disable support for VLAN tagging/untagging],
+   [  --disable-vlan-tagging  Disable support for 802.1Q-based VLAN tagging],
    [VLAN_TAGGING="$enableval"],
    [VLAN_TAGGING="yes"]
 )
@@ -894,7 +894,7 @@ fi
 
 dnl enable --vlan-tagging
 if test "$VLAN_TAGGING" = "yes"; then
-   AC_DEFINE(ENABLE_VLAN_TAGGING, 1, [Enable VLAN tagging/untagging])
+   AC_DEFINE(ENABLE_VLAN_TAGGING, 1, [Enable 802.1Q-based VLAN tagging/untagging])
 fi
 
 
