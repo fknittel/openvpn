@@ -56,12 +56,12 @@ is_ipv_X( int tunnel_type, struct buffer *buf, int ip_ver )
     }
     else if (tunnel_type == DEV_TYPE_TAP)
     {
+        const struct openvpn_ethhdr *eh;
         if (BLEN(buf) < (int)(sizeof(struct openvpn_ethhdr)
                               + sizeof(struct openvpn_iphdr)))
         {
             return false;
         }
-        const struct openvpn_ethhdr *eh;
         eh = (const struct openvpn_ethhdr *) BPTR(buf);
         if (ntohs(eh->proto) == OPENVPN_ETH_P_8021Q)
         {
@@ -79,7 +79,7 @@ is_ipv_X( int tunnel_type, struct buffer *buf, int ip_ver )
             }
             else
             {
-              offset = sizeof(struct openvpn_8021qhdr);
+                offset = sizeof(struct openvpn_8021qhdr);
             }
         }
         else if (ntohs(eh->proto) !=
