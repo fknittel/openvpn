@@ -522,7 +522,7 @@ struct options
 #ifdef ENABLE_VLAN_TAGGING
   bool vlan_tagging;
   enum vlan_acceptable_frames vlan_accept;
-  int vlan_pvid;
+  uint16_t vlan_pvid;
 #endif
 };
 
