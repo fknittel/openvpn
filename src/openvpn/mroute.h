@@ -184,7 +184,7 @@ unsigned int mroute_extract_addr_ether(struct mroute_addr *src,
                                        struct mroute_addr *esrc,
                                        struct mroute_addr *edest,
                                        const struct buffer *buf,
-                                       int16_t vid);
+                                       uint16_t vid);
 
 /*
  * Given a raw packet in buf, return the src and dest
@@ -197,7 +197,7 @@ mroute_extract_addr_from_packet(struct mroute_addr *src,
                                 struct mroute_addr *edest,
                                 const struct buffer *buf,
                                 int tunnel_type,
-                                int16_t vid)
+                                uint16_t vid)
 {
     unsigned int ret = 0;
     verify_align_4(buf);
