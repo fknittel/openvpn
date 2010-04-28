@@ -2463,8 +2463,9 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 #ifdef ENABLE_VLAN_TAGGING
 /*
  * For vlan_accept == VAF_ONLY_UNTAGGED_OR_PRIORITY:
- *   If a frame is VLAN-tagged, it is dropped.  Otherwise, the global
- *   vlan_pvid is returned as VID.
+ *   Only untagged frames and frames that are priority-tagged (VID == 0) are
+ *   accepted.  (This means that VLAN-tagged frames are dropped.)  For frames
+ *   that aren't dropped, the global vlan_pvid is returned as VID.
  *
  * For vlan_accept == VAF_ONLY_VLAN_TAGGED:
  *   If a frame is VLAN-tagged and contains no priority information, the
@@ -2476,6 +2477,10 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
  * For vlan_accept == VAF_ALL:
  *   Accepts both VLAN-tagged and untagged (or priority-tagged) frames and
  *   and handles them as described above.
+ *
+ * @param c   The global context.
+ * @param buf The ethernet frame.
+ * @return    Returns -1 if the frame is dropped or the VID if it is accepted.
  */
 static int16_t
 remove_vlan_tag (const struct context *c, struct buffer *buf)
