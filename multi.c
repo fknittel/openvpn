@@ -1763,6 +1763,18 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 {
   if (tls_authentication_status (mi->context.c2.tls_multi, 0) == TLS_AUTHENTICATION_SUCCEEDED)
     {
+      typedef enum client_connect_return_t (*multi_client_connect_handler)(struct multi_context *m, struct multi_instance *mi, unsigned int *option_types_found);
+
+      multi_client_connect_handler handlers[] = {
+	  multi_client_connect_source_ccd,
+	  multi_client_connect_call_plugin_v1,
+	  multi_client_connect_call_plugin_v2,
+	  multi_client_connect_call_script,
+	  multi_client_connect_mda,
+	  NULL
+      };
+
+      int cur_handler = 0;
       unsigned int option_types_found = 0;
       int cc_succeeded = true; /* client connect script status */
       int cc_succeeded_count = 0;
@@ -1770,51 +1782,14 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
 
       multi_client_connect_early_setup (m, mi);
 
-      if (cc_succeeded)
+      while (succeeded && handlers[cur_handler])
 	{
-	  ret = multi_client_connect_source_ccd (m, mi, &option_types_found);
+	  ret = handlers[cur_handler] (m, mi, &option_types_found);
 	  if (ret == CC_RET_SUCCEEDED)
 	    ++cc_succeeded_count;
 	  else if (ret == CC_RET_FAILED)
-	    cc_succeeded = false;
-	}
-
-      if (cc_succeeded)
-	{
-	  ret = multi_client_connect_call_plugin_v1 (m, mi,
-						     &option_types_found);
-	  if (ret == CC_RET_SUCCEEDED)
-	    ++cc_succeeded_count;
-	  else if (ret == CC_RET_FAILED)
-	    cc_succeeded = false;
-	}
-
-      if (cc_succeeded)
-	{
-	  ret = multi_client_connect_call_plugin_v2 (m, mi,
-						     &option_types_found);
-	  if (ret == CC_RET_SUCCEEDED)
-	    ++cc_succeeded_count;
-	  else if (ret == CC_RET_FAILED)
-	    cc_succeeded = false;
-	}
-
-      if (cc_succeeded)
-	{
-	  ret = multi_client_connect_call_script (m, mi, &option_types_found);
-	  if (ret == CC_RET_SUCCEEDED)
-	    ++cc_succeeded_count;
-	  else if (ret == CC_RET_FAILED)
-	    cc_succeeded = false;
-	}
-
-      if (cc_succeeded)
-	{
-	  ret = multi_client_connect_mda (m, mi, &option_types_found);
-	  if (ret == CC_RET_SUCCEEDED)
-	    ++cc_succeeded_count;
-	  else if (ret == CC_RET_FAILED)
-	    cc_succeeded = false;
+	    succeeded = false;
+	  ++cur_handler;
 	}
 
       multi_client_connect_late_setup (m, mi, option_types_found, cc_succeeded,
