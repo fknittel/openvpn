@@ -1556,107 +1556,6 @@ multi_client_connect_setenv (struct multi_context *m,
 
 static void
 multi_client_connect_early_setup (struct multi_context *m,
-				  struct multi_instance *mi);
-static void
-multi_client_connect_source_ccd (struct multi_context *m,
-				 struct multi_instance *mi,
-				 unsigned int *option_types_found);
-static void
-multi_client_connect_call_plugin_v1 (struct multi_context *m,
-				     struct multi_instance *mi,
-				     unsigned int *option_types_found,
-				     int *cc_succeeded,
-				     int *cc_succeeded_count);
-static void
-multi_client_connect_call_plugin_v2 (struct multi_context *m,
-				     struct multi_instance *mi,
-				     unsigned int *option_types_found,
-				     int *cc_succeeded,
-				     int *cc_succeeded_count);
-static void
-multi_client_connect_call_script (struct multi_context *m,
-				  struct multi_instance *mi,
-				  unsigned int *option_types_found,
-				  int *cc_succeeded,
-				  int *cc_succeeded_count);
-static void
-multi_client_connect_late_setup (struct multi_context *m,
-				 struct multi_instance *mi,
-				 const unsigned int option_types_found,
-				 int cc_succeeded,
-				 const int cc_succeeded_count);
-
-/*
- * Called as soon as the SSL/TLS connection authenticates.
- *
- * Instance-specific directives to be processed:
- *
- *   iroute start-ip end-ip
- *   ifconfig-push local remote-netmask
- *   push
- */
-static void
-multi_connection_established (struct multi_context *m, struct multi_instance *mi)
-{
-  if (tls_authentication_status (mi->context.c2.tls_multi, 0) == TLS_AUTHENTICATION_SUCCEEDED)
-    {
-      unsigned int option_types_found = 0;
-      int cc_succeeded = true; /* client connect script status */
-      int cc_succeeded_count = 0;
-
-      multi_client_connect_early_setup (m, mi);
-
-      multi_client_connect_source_ccd (m, mi, &option_types_found);
-
-      /*
-       * Select a virtual address from either --ifconfig-push in
-       * --client-config-dir file or --ifconfig-pool.
-       */
-      multi_select_virtual_addr (m, mi);
-
-      /* do --client-connect setenvs */
-      multi_client_connect_setenv (m, mi);
-
-      multi_client_connect_call_plugin_v1 (m, mi, &option_types_found,
-					   &cc_succeeded, &cc_succeeded_count);
-
-      multi_client_connect_call_plugin_v2 (m, mi, &option_types_found,
-					   &cc_succeeded, &cc_succeeded_count);
-
-      /*
-       * Run --client-connect script.
-       */
-      if (cc_succeeded)
-	{
-	  multi_client_connect_call_script (m, mi, &option_types_found,
-					    &cc_succeeded,
-					    &cc_succeeded_count);
-	}
-
-      /*
-       * Check for client-connect script left by management interface client
-       */
-      if (cc_succeeded)
-	{
-	  multi_client_connect_mda (m, mi, &option_types_found,
-				    &cc_succeeded, &cc_succeeded_count);
-	}
-
-      multi_client_connect_late_setup (m, mi, option_types_found,
-				       cc_succeeded, cc_succeeded_count);
-
-      /* set flag so we don't get called again */
-      mi->connection_established_flag = true;
-    }
-
-  /*
-   * Reply now to client's PUSH_REQUEST query
-   */
-  mi->context.c2.push_reply_deferred = false;
-}
-
-static void
-multi_client_connect_early_setup (struct multi_context *m,
 				  struct multi_instance *mi)
 {
       /* lock down the common name and cert hashes so they can't change during
@@ -1981,6 +1880,74 @@ multi_client_connect_late_setup (struct multi_context *m,
       gc_free (&gc);
 }
 
+/*
+ * Called as soon as the SSL/TLS connection authenticates.
+ *
+ * Instance-specific directives to be processed:
+ *
+ *   iroute start-ip end-ip
+ *   ifconfig-push local remote-netmask
+ *   push
+ */
+static void
+multi_connection_established (struct multi_context *m, struct multi_instance *mi)
+{
+  if (tls_authentication_status (mi->context.c2.tls_multi, 0) == TLS_AUTHENTICATION_SUCCEEDED)
+    {
+      unsigned int option_types_found = 0;
+      int cc_succeeded = true; /* client connect script status */
+      int cc_succeeded_count = 0;
+
+      multi_client_connect_early_setup (m, mi);
+
+      multi_client_connect_source_ccd (m, mi, &option_types_found);
+
+      /*
+       * Select a virtual address from either --ifconfig-push in
+       * --client-config-dir file or --ifconfig-pool.
+       */
+      multi_select_virtual_addr (m, mi);
+
+      /* do --client-connect setenvs */
+      multi_client_connect_setenv (m, mi);
+
+      multi_client_connect_call_plugin_v1 (m, mi, &option_types_found,
+					   &cc_succeeded, &cc_succeeded_count);
+
+      multi_client_connect_call_plugin_v2 (m, mi, &option_types_found,
+					   &cc_succeeded, &cc_succeeded_count);
+
+      /*
+       * Run --client-connect script.
+       */
+      if (cc_succeeded)
+	{
+	  multi_client_connect_call_script (m, mi, &option_types_found,
+					    &cc_succeeded,
+					    &cc_succeeded_count);
+	}
+
+      /*
+       * Check for client-connect script left by management interface client
+       */
+      if (cc_succeeded)
+	{
+	  multi_client_connect_mda (m, mi, &option_types_found,
+				    &cc_succeeded, &cc_succeeded_count);
+	}
+
+      multi_client_connect_late_setup (m, mi, option_types_found,
+				       cc_succeeded, cc_succeeded_count);
+
+      /* set flag so we don't get called again */
+      mi->connection_established_flag = true;
+    }
+
+  /*
+   * Reply now to client's PUSH_REQUEST query
+   */
+  mi->context.c2.push_reply_deferred = false;
+}
 
 /*
  * Add a mbuf buffer to a particular
