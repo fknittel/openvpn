@@ -1373,7 +1373,7 @@ multi_client_connect_mda (struct multi_context *m,
   if (mi->cc_config)
     {
       struct buffer_entry *be;
-  
+
       for (be = mi->cc_config->head; be != NULL; be = be->next)
 	{
 	  const char *opt = BSTR(&be->buf);
@@ -1428,20 +1428,20 @@ static void
 multi_client_connect_early_setup (struct multi_context *m,
 				  struct multi_instance *mi)
 {
-      /* lock down the common name and cert hashes so they can't change during
-	 future TLS renegotiations */
-      tls_lock_common_name (mi->context.c2.tls_multi);
-      tls_lock_cert_hash_set (mi->context.c2.tls_multi);
+  /* lock down the common name and cert hashes so they can't change during
+     future TLS renegotiations */
+  tls_lock_common_name (mi->context.c2.tls_multi);
+  tls_lock_cert_hash_set (mi->context.c2.tls_multi);
 
-      /* generate a msg() prefix for this client instance */
-      generate_prefix (mi);
+  /* generate a msg() prefix for this client instance */
+  generate_prefix (mi);
 
-      /* delete instances of previous clients with same common-name */
-      if (!mi->context.options.duplicate_cn)
-	multi_delete_dup (m, mi);
+  /* delete instances of previous clients with same common-name */
+  if (!mi->context.options.duplicate_cn)
+    multi_delete_dup (m, mi);
 
-      /* reset pool handle to null */
-      mi->vaddr_handle = -1;
+  /* reset pool handle to null */
+  mi->vaddr_handle = -1;
 }
 
 /*
@@ -1453,16 +1453,30 @@ multi_client_connect_source_ccd (struct multi_context *m,
 				 struct multi_instance *mi,
 				 unsigned int *option_types_found)
 {
-      if (mi->context.options.client_config_dir)
+  if (mi->context.options.client_config_dir)
+    {
+      struct gc_arena gc = gc_new ();
+      const char *ccd_file;
+
+      ccd_file = gen_path (mi->context.options.client_config_dir,
+			   tls_common_name (mi->context.c2.tls_multi, false),
+			   &gc);
+      /* try common-name file */
+      if (test_file (ccd_file))
 	{
-	  struct gc_arena gc = gc_new ();
-	  const char *ccd_file;
-	  
+	  options_server_import (&mi->context.options,
+				 ccd_file,
+				 D_IMPORT_ERRORS|M_OPTERR,
+				 CLIENT_CONNECT_OPT_MASK,
+				 option_types_found,
+				 mi->context.c2.es);
+	}
+      else /* try default file */
+	{
 	  ccd_file = gen_path (mi->context.options.client_config_dir,
-			       tls_common_name (mi->context.c2.tls_multi, false),
+			       CCD_DEFAULT,
 			       &gc);
 
-	  /* try common-name file */
 	  if (test_file (ccd_file))
 	    {
 	      options_server_import (&mi->context.options,
@@ -1472,25 +1486,10 @@ multi_client_connect_source_ccd (struct multi_context *m,
 				     option_types_found,
 				     mi->context.c2.es);
 	    }
-	  else /* try default file */
-	    {
-	      ccd_file = gen_path (mi->context.options.client_config_dir,
-				   CCD_DEFAULT,
-				   &gc);
-
-	      if (test_file (ccd_file))
-		{
-		  options_server_import (&mi->context.options,
-					 ccd_file,
-					 D_IMPORT_ERRORS|M_OPTERR,
-					 CLIENT_CONNECT_OPT_MASK,
-					 option_types_found,
-					 mi->context.c2.es);
-		}
-	    }
-
-	  gc_free (&gc);
 	}
+
+      gc_free (&gc);
+    }
 }
 
 /*
@@ -1506,44 +1505,44 @@ multi_client_connect_call_plugin_v1 (struct multi_context *m,
 				     int *cc_succeeded_count)
 {
 #ifdef ENABLE_PLUGIN
-      ASSERT (m);
-      ASSERT (mi);
-      ASSERT (option_types_found);
-      ASSERT (cc_succeeded);
-      ASSERT (cc_succeeded_count);
+  ASSERT (m);
+  ASSERT (mi);
+  ASSERT (option_types_found);
+  ASSERT (cc_succeeded);
+  ASSERT (cc_succeeded_count);
 
-      if (plugin_defined (mi->context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT))
+  if (plugin_defined (mi->context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT))
+    {
+      int plug_ret;
+      struct gc_arena gc = gc_new ();
+      struct argv argv = argv_new ();
+      const char *dc_file = create_temp_file (mi->context.options.tmp_dir, "cc", &gc);
+
+      if (!dc_file)
 	{
-	  int plug_ret;
-	  struct gc_arena gc = gc_new ();
-	  struct argv argv = argv_new ();
-	  const char *dc_file = create_temp_file (mi->context.options.tmp_dir, "cc", &gc);
-
-          if (!dc_file)
-	    {
-	      *cc_succeeded = false;
-	      goto script_depr_failed;
-	    }
-
-	  argv_printf (&argv, "%s", dc_file);
-
-	  plug_ret = plugin_call (mi->context.plugins,
-				  OPENVPN_PLUGIN_CLIENT_CONNECT,
-				  &argv, NULL, mi->context.c2.es);
-	  argv_reset (&argv);
-	  if (plug_ret != OPENVPN_PLUGIN_FUNC_SUCCESS)
-	    {
-	      msg (M_WARN, "WARNING: client-connect plugin call failed");
-	      *cc_succeeded = false;
-	    }
-	  else
-	    {
-	      multi_client_connect_post (m, mi, dc_file, option_types_found);
-	      ++*cc_succeeded_count;
-	    }
-script_depr_failed:
-	  gc_free (&gc);
+	  *cc_succeeded = false;
+	  goto script_depr_failed;
 	}
+
+      argv_printf (&argv, "%s", dc_file);
+
+      plug_ret = plugin_call (mi->context.plugins,
+			      OPENVPN_PLUGIN_CLIENT_CONNECT,
+			      &argv, NULL, mi->context.c2.es);
+      argv_reset (&argv);
+      if (plug_ret != OPENVPN_PLUGIN_FUNC_SUCCESS)
+	{
+	  msg (M_WARN, "WARNING: client-connect plugin call failed");
+	  *cc_succeeded = false;
+	}
+      else
+	{
+	  multi_client_connect_post (m, mi, dc_file, option_types_found);
+	  ++*cc_succeeded_count;
+	}
+script_depr_failed:
+      gc_free (&gc);
+    }
 #endif
 }
 
@@ -1560,35 +1559,35 @@ multi_client_connect_call_plugin_v2 (struct multi_context *m,
 				     int *cc_succeeded_count)
 {
 #ifdef ENABLE_PLUGIN
-      ASSERT (m);
-      ASSERT (mi);
-      ASSERT (option_types_found);
-      ASSERT (cc_succeeded);
-      ASSERT (cc_succeeded_count);
+  ASSERT (m);
+  ASSERT (mi);
+  ASSERT (option_types_found);
+  ASSERT (cc_succeeded);
+  ASSERT (cc_succeeded_count);
 
-      if (plugin_defined (mi->context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT_V2))
+  if (plugin_defined (mi->context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT_V2))
+    {
+      int plug_ret;
+      struct plugin_return pr;
+
+      plugin_return_init (&pr);
+
+      plug_ret = plugin_call (mi->context.plugins,
+			      OPENVPN_PLUGIN_CLIENT_CONNECT_V2,
+			      NULL, &pr, mi->context.c2.es);
+      if (plug_ret != OPENVPN_PLUGIN_FUNC_SUCCESS)
 	{
-	  int plug_ret;
-	  struct plugin_return pr;
-
-	  plugin_return_init (&pr);
-
-	  plug_ret = plugin_call (mi->context.plugins,
-				  OPENVPN_PLUGIN_CLIENT_CONNECT_V2,
-				  NULL, &pr, mi->context.c2.es);
-	  if (plug_ret != OPENVPN_PLUGIN_FUNC_SUCCESS)
-	    {
-	      msg (M_WARN, "WARNING: client-connect-v2 plugin call failed");
-	      *cc_succeeded = false;
-	    }
-	  else
-	    {
-	      multi_client_connect_post_plugin (m, mi, &pr, option_types_found);
-	      ++*cc_succeeded_count;
-	    }
-
-	  plugin_return_free (&pr);
+	  msg (M_WARN, "WARNING: client-connect-v2 plugin call failed");
+	  *cc_succeeded = false;
 	}
+      else
+	{
+	  multi_client_connect_post_plugin (m, mi, &pr, option_types_found);
+	  ++*cc_succeeded_count;
+	}
+
+      plugin_return_free (&pr);
+    }
 #endif
 }
 
@@ -1599,43 +1598,43 @@ multi_client_connect_call_script (struct multi_context *m,
 				  int *cc_succeeded,
 				  int *cc_succeeded_count)
 {
-      ASSERT (m);
-      ASSERT (mi);
-      ASSERT (option_types_found);
-      ASSERT (cc_succeeded);
-      ASSERT (cc_succeeded_count);
+  ASSERT (m);
+  ASSERT (mi);
+  ASSERT (option_types_found);
+  ASSERT (cc_succeeded);
+  ASSERT (cc_succeeded_count);
 
-      if (mi->context.options.client_connect_script)
+  if (mi->context.options.client_connect_script)
+    {
+      struct gc_arena gc = gc_new ();
+      struct argv argv = argv_new ();
+      const char *dc_file;
+
+      setenv_str (mi->context.c2.es, "script_type", "client-connect");
+
+      dc_file = create_temp_file (mi->context.options.tmp_dir, "cc", &gc);
+      if (!dc_file)
 	{
-	  struct gc_arena gc = gc_new ();
-	  struct argv argv = argv_new ();
-	  const char *dc_file;
-
-	  setenv_str (mi->context.c2.es, "script_type", "client-connect");
-
-	  dc_file = create_temp_file (mi->context.options.tmp_dir, "cc", &gc);
-          if (!dc_file)
-	    {
-	      cc_succeeded = false;
-	      goto script_failed;
-	    }
-
-	  argv_printf (&argv, "%sc %s",
-		       mi->context.options.client_connect_script,
-		       dc_file);
-
-	  if (openvpn_execve_check (&argv, mi->context.c2.es, S_SCRIPT,
-				    "client-connect command failed"))
-	    {
-	      multi_client_connect_post (m, mi, dc_file, option_types_found);
-	      ++cc_succeeded_count;
-	    }
-	  else
-	    cc_succeeded = false;
-script_failed:
-	  argv_reset (&argv);
-	  gc_free (&gc);
+	  cc_succeeded = false;
+	  goto script_failed;
 	}
+
+      argv_printf (&argv, "%sc %s",
+		   mi->context.options.client_connect_script,
+		   dc_file);
+
+      if (openvpn_execve_check (&argv, mi->context.c2.es, S_SCRIPT,
+				"client-connect command failed"))
+	{
+	  multi_client_connect_post (m, mi, dc_file, option_types_found);
+	  ++cc_succeeded_count;
+	}
+      else
+	cc_succeeded = false;
+script_failed:
+      argv_reset (&argv);
+      gc_free (&gc);
+    }
 }
 
 static void
