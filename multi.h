@@ -88,6 +88,13 @@ struct multi_instance {
   struct context context;
 };
 
+enum client_connect_return
+{
+  CC_RET_FAILED,
+  CC_RET_SUCCEEDED,
+  CC_RET_SKIPPED
+};
+
 /*
  * One multi_context object per server daemon thread.
  */
