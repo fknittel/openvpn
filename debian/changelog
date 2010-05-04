@@ -1,3 +1,10 @@
+openvpn (2.1.0+git-1.4) local; urgency=low
+
+  * Included fix to feat_misc script handling (commit
+    0b8c00c2e3e08fcc8ad93c464f7f55b0a1ccb7f6).
+
+ -- Fabian Knittel <fabian.knittel@avona.com>  Tue, 04 May 2010 16:10:10 +0200
+
 openvpn (2.1.0+git-1.3) local; urgency=low
 
   * Non-maintainer upload.
