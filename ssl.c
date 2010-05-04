@@ -7,6 +7,10 @@
  *
  *  Copyright (C) 2002-2010 OpenVPN Technologies, Inc. <sales@openvpn.net>
  *
+ *  Additions for eurephia plugin done by:
+ *         David Sommerseth <dazo@users.sourceforge.net> Copyright (C) 2008-2009
+ *
+ *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2
  *  as published by the Free Software Foundation.
@@ -687,6 +691,49 @@ string_mod_sslname (char *str, const unsigned int restrictive_flags, const unsig
     string_mod (str, restrictive_flags, 0, '_');
 }
 
+/* Get peer cert and store it in pem format in a temporary file
+ * in tmp_dir
+ */
+
+const char *
+get_peer_cert(X509_STORE_CTX *ctx, const char *tmp_dir, struct gc_arena *gc)
+{
+  X509 *peercert;
+  FILE *peercert_file;
+  const char *peercert_filename="";
+
+  if(!tmp_dir)
+      return NULL;
+
+  /* get peer cert */
+  peercert = X509_STORE_CTX_get_current_cert(ctx);
+  if(!peercert)
+    {
+      msg (M_ERR, "Unable to get peer certificate from current context");
+      return NULL;
+    }
+
+  /* create tmp file to store peer cert */
+  peercert_filename = create_temp_file (tmp_dir, "pcf", gc);
+
+  /* write peer-cert in tmp-file */
+  peercert_file = fopen(peercert_filename, "w+");
+  if(!peercert_file)
+    {
+      msg (M_ERR, "Failed to open temporary file : %s", peercert_filename);
+      return NULL;
+    }
+  if(PEM_write_X509(peercert_file,peercert)<0)
+    {
+      msg (M_ERR, "Failed to write peer certificate in PEM format");
+      fclose(peercert_file);
+      return NULL;
+    }
+
+  fclose(peercert_file);
+  return peercert_filename;
+}
+
 /*
  * Our verify callback function -- check
  * that an incoming peer certificate is good.
@@ -780,6 +827,16 @@ verify_callback (int preverify_ok, X509_STORE_CTX * ctx)
   openvpn_snprintf (envname, sizeof(envname), "tls_id_%d", ctx->error_depth);
   setenv_str (opt->es, envname, subject);
 
+#ifdef ENABLE_EUREPHIA
+  /* export X509 cert SHA1 fingerprint */
+  {
+    struct gc_arena gc = gc_new ();
+    openvpn_snprintf (envname, sizeof(envname), "tls_digest_%d", ctx->error_depth);
+    setenv_str (opt->es, envname,
+		format_hex_ex(ctx->current_cert->sha1_hash, SHA_DIGEST_LENGTH, 0, 1, ":", &gc));
+    gc_free(&gc);
+  }
+#endif
 #if 0
   /* export common name string as environmental variable */
   openvpn_snprintf (envname, sizeof(envname), "tls_common_name_%d", ctx->error_depth);
@@ -906,16 +963,34 @@ verify_callback (int preverify_ok, X509_STORE_CTX * ctx)
   /* run --tls-verify script */
   if (opt->verify_command)
     {
+      const char *tmp_file;
+      struct gc_arena gc;
       int ret;
 
       setenv_str (opt->es, "script_type", "tls-verify");
+
+      if (opt->verify_export_cert)
+        {
+          gc = gc_new();
+          if (tmp_file=get_peer_cert(ctx, opt->verify_export_cert,&gc))
+           {
+             setenv_str(opt->es, "peer_cert", tmp_file);
+           }
+        }
 
       argv_printf (&argv, "%sc %d %s",
 		   opt->verify_command,
 		   ctx->error_depth,
 		   subject);
       argv_msg_prefix (D_TLS_DEBUG, &argv, "TLS: executing verify command");
-      ret = openvpn_execve (&argv, opt->es, S_SCRIPT);
+      ret = openvpn_run_script (&argv, opt->es, 0, "--tls-verify script");
+
+      if (opt->verify_export_cert)
+        {
+           if (tmp_file)
+              delete_file(tmp_file);
+           gc_free(&gc);
+        }
 
       if (system_ok (ret))
 	{
@@ -3198,7 +3273,7 @@ verify_user_pass_script (struct tls_session *session, const struct user_pass *up
       argv_printf (&argv, "%sc %s", session->opt->auth_user_pass_verify_script, tmp_file);
       
       /* call command */
-      retval = openvpn_execve (&argv, session->opt->es, S_SCRIPT);
+      retval = openvpn_run_script (&argv, session->opt->es, 0, "--auth-user-pass-verify");
 
       /* test return status of command */
       if (system_ok (retval))

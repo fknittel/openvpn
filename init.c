@@ -96,7 +96,7 @@ update_options_ce_post (struct options *options)
    */
   if (options->pull
       && options->ping_rec_timeout_action == PING_UNDEF
-      && options->ce.proto == PROTO_UDPv4)
+      && proto_is_dgram(options->ce.proto))
     {
       options->ping_rec_timeout = PRE_PULL_INITIAL_PING_RESTART;
       options->ping_rec_timeout_action = PING_RESTART;
@@ -686,7 +686,7 @@ do_persist_tuntap (const struct options *options)
 	msg (M_FATAL|M_OPTERR,
 	     "options --mktun or --rmtun should only be used together with --dev");
       tuncfg (options->dev, options->dev_type, options->dev_node,
-	      options->tun_ipv6, options->persist_mode,
+	      options->persist_mode,
 	      options->username, options->groupname, &options->tuntap_options);
       if (options->persist_mode && options->lladdr)
         set_lladdr(options->dev, options->lladdr, NULL);
@@ -909,6 +909,8 @@ do_alloc_route_list (struct context *c)
 {
   if (c->options.routes && !c->c1.route_list)
     c->c1.route_list = new_route_list (c->options.max_routes, &c->gc);
+  if (c->options.routes_ipv6 && !c->c1.route_ipv6_list)
+    c->c1.route_ipv6_list = new_route_ipv6_list (c->options.max_routes, &c->gc);
 }
 
 
@@ -951,6 +953,45 @@ do_init_route_list (const struct options *options,
     }
 }
 
+static void
+do_init_route_ipv6_list (const struct options *options,
+		    struct route_ipv6_list *route_ipv6_list,
+		    bool fatal,
+		    struct env_set *es)
+{
+  const char *gw = NULL;
+  int dev = dev_type_enum (options->dev, options->dev_type);
+  int metric = 0;
+
+  if (dev != DEV_TYPE_TUN )
+    msg( M_WARN, "IPv6 routes on TAP devices are going to fail on some platforms (need gateway spec)" );	/* TODO-GERT */
+
+  gw = options->ifconfig_ipv6_remote;		/* default GW = remote end */
+#if 0					/* not yet done for IPv6 - TODO!*/
+  if ( options->route_ipv6_default_gateway )		/* override? */
+    gw = options->route_ipv6_default_gateway;
+#endif
+
+  if (options->route_default_metric)
+    metric = options->route_default_metric;
+
+  if (!init_route_ipv6_list (route_ipv6_list,
+			options->routes_ipv6,
+			gw,
+			metric,
+			es))
+    {
+      if (fatal)
+	openvpn_exit (OPENVPN_EXIT_STATUS_ERROR);	/* exit point */
+    }
+  else
+    {
+      /* copy routes to environment */
+      setenv_routes_ipv6 (es, route_ipv6_list);
+    }
+}
+
+
 /*
  * Called after all initialization has been completed.
  */
@@ -989,7 +1030,12 @@ initialization_sequence_completed (struct context *c, const unsigned int flags)
       const char *detail = "SUCCESS";
       if (c->c1.tuntap)
 	tun_local = c->c1.tuntap->local;
-      tun_remote = htonl (c->c1.link_socket_addr.actual.dest.sa.sin_addr.s_addr);
+      /* TODO(jjo): for ipv6 this will convert some 32bits in the ipv6 addr
+       *            to a meaningless ipv4 address.
+       *            In any case, is somewhat inconsistent to send local tunnel
+       *            addr with remote _endpoint_ addr (?)
+       */
+      tun_remote = htonl (c->c1.link_socket_addr.actual.dest.addr.in4.sin_addr.s_addr);
       if (flags & ISC_ERRORS)
 	detail = "ERROR";
       management_set_state (management,
@@ -1011,12 +1057,13 @@ initialization_sequence_completed (struct context *c, const unsigned int flags)
 void
 do_route (const struct options *options,
 	  struct route_list *route_list,
+	  struct route_ipv6_list *route_ipv6_list,
 	  const struct tuntap *tt,
 	  const struct plugin_list *plugins,
 	  struct env_set *es)
 {
-  if (!options->route_noexec && route_list)
-    add_routes (route_list, tt, ROUTE_OPTION_FLAGS (options), es);
+  if (!options->route_noexec && ( route_list || route_ipv6_list ) )
+    add_routes (route_list, route_ipv6_list, tt, ROUTE_OPTION_FLAGS (options), es);
 
   if (plugin_defined (plugins, OPENVPN_PLUGIN_ROUTE_UP))
     {
@@ -1029,7 +1076,7 @@ do_route (const struct options *options,
       struct argv argv = argv_new ();
       setenv_str (es, "script_type", "route-up");
       argv_printf (&argv, "%sc", options->route_script);
-      openvpn_execve_check (&argv, es, S_SCRIPT, "Route script failed");
+      openvpn_run_script (&argv, es, 0, "--route-up");
       argv_reset (&argv);
     }
 
@@ -1073,10 +1120,15 @@ do_init_tun (struct context *c)
 			   c->options.topology,
 			   c->options.ifconfig_local,
 			   c->options.ifconfig_remote_netmask,
+			   c->options.ifconfig_ipv6_local,
+			   c->options.ifconfig_ipv6_remote,
 			   addr_host (&c->c1.link_socket_addr.local),
 			   addr_host (&c->c1.link_socket_addr.remote),
 			   !c->options.ifconfig_nowarn,
 			   c->c2.es);
+
+  /* flag tunnel for IPv6 config if --tun-ipv6 is set */
+  c->c1.tuntap->ipv6 = c->options.tun_ipv6;
 
   init_tun_post (c->c1.tuntap,
 		 &c->c2.frame,
@@ -1109,6 +1161,8 @@ do_open_tun (struct context *c)
       /* parse and resolve the route option list */
       if (c->options.routes && c->c1.route_list && c->c2.link_socket)
 	do_init_route_list (&c->options, c->c1.route_list, &c->c2.link_socket->info, false, c->c2.es);
+      if (c->options.routes_ipv6 && c->c1.route_ipv6_list )
+	do_init_route_ipv6_list (&c->options, c->c1.route_ipv6_list, false, c->c2.es);
 
       /* do ifconfig */
       if (!c->options.ifconfig_noexec
@@ -1125,7 +1179,7 @@ do_open_tun (struct context *c)
 
       /* open the tun device */
       open_tun (c->options.dev, c->options.dev_type, c->options.dev_node,
-		c->options.tun_ipv6, c->c1.tuntap);
+		c->c1.tuntap);
 
       /* set the hardware address */
       if (c->options.lladdr)
@@ -1154,7 +1208,8 @@ do_open_tun (struct context *c)
 
       /* possibly add routes */
       if (!c->options.route_delay_defined)
-	do_route (&c->options, c->c1.route_list, c->c1.tuntap, c->plugins, c->c2.es);
+	do_route (&c->options, c->c1.route_list, c->c1.route_ipv6_list,
+		  c->c1.tuntap, c->plugins, c->c2.es);
 
       /*
        * Did tun/tap driver give us an MTU?
@@ -1228,8 +1283,9 @@ do_close_tun (struct context *c, bool force)
 #endif
 
 	  /* delete any routes we added */
-	  if (c->c1.route_list)
-	    delete_routes (c->c1.route_list, c->c1.tuntap, ROUTE_OPTION_FLAGS (&c->options), c->c2.es);
+	  if (c->c1.route_list || c->c1.route_ipv6_list )
+	    delete_routes (c->c1.route_list, c->c1.route_ipv6_list,
+			   c->c1.tuntap, ROUTE_OPTION_FLAGS (&c->options), c->c2.es);
 
 	  /* actually close tun/tap device based on --down-pre flag */
 	  if (!c->options.down_pre)
@@ -1405,7 +1461,7 @@ do_deferred_options (struct context *c, const unsigned int found)
 #ifdef ENABLE_OCC
   if (found & OPT_P_EXPLICIT_NOTIFY)
     {
-      if (c->options.ce.proto != PROTO_UDPv4 && c->options.explicit_exit_notification)
+      if (!proto_is_udp(c->options.ce.proto) && c->options.explicit_exit_notification)
 	{
 	  msg (D_PUSH, "OPTIONS IMPORT: --explicit-exit-notify can only be used with --proto udp");
 	  c->options.explicit_exit_notification = 0;
@@ -1500,13 +1556,22 @@ socket_restart_pause (struct context *c)
   switch (c->options.ce.proto)
     {
     case PROTO_UDPv4:
+#ifdef USE_PF_INET6
+    case PROTO_UDPv6:
+#endif
       if (proxy)
 	sec = c->options.ce.connect_retry_seconds;
       break;
     case PROTO_TCPv4_SERVER:
+#ifdef USE_PF_INET6
+    case PROTO_TCPv6_SERVER:
+#endif
       sec = 1;
       break;
     case PROTO_TCPv4_CLIENT:
+#ifdef USE_PF_INET6
+    case PROTO_TCPv6_CLIENT:
+#endif
       sec = c->options.ce.connect_retry_seconds;
       break;
     }
@@ -1859,6 +1924,7 @@ do_init_crypto_tls (struct context *c, const unsigned int flags)
 #endif
 
   to.verify_command = options->tls_verify;
+  to.verify_export_cert = options->tls_export_cert;
   to.verify_x509name = options->tls_remote;
   to.crl_file = options->crl_file;
   to.ns_cert_type = options->ns_cert_type;
@@ -2642,7 +2708,7 @@ do_setup_fast_io (struct context *c)
 #ifdef WIN32
       msg (M_INFO, "NOTE: --fast-io is disabled since we are running on Windows");
 #else
-      if (c->options.ce.proto != PROTO_UDPv4)
+      if (!proto_is_udp(c->options.ce.proto))
 	msg (M_INFO, "NOTE: --fast-io is disabled since we are not using UDP");
       else
 	{
@@ -2904,7 +2970,11 @@ init_instance (struct context *c, const struct env_set *env, const unsigned int 
   /* link_socket_mode allows CM_CHILD_TCP
      instances to inherit acceptable fds
      from a top-level parent */
-  if (c->options.ce.proto == PROTO_TCPv4_SERVER)
+  if (c->options.ce.proto == PROTO_TCPv4_SERVER
+#ifdef USE_PF_INET6
+      || c->options.ce.proto == PROTO_TCPv6_SERVER
+#endif
+     )
     {
       if (c->mode == CM_TOP)
 	link_socket_mode = LS_MODE_TCP_LISTEN;
@@ -3187,17 +3257,8 @@ inherit_context_child (struct context *dest,
 {
   CLEAR (*dest);
 
-  switch (src->options.ce.proto)
-    {
-    case PROTO_UDPv4:
-      dest->mode = CM_CHILD_UDP;
-      break;
-    case PROTO_TCPv4_SERVER:
-      dest->mode = CM_CHILD_TCP;
-      break;
-    default:
-      ASSERT (0);
-    }
+  /* proto_is_dgram will ASSERT(0) if proto is invalid */
+  dest->mode = proto_is_dgram(src->options.ce.proto)? CM_CHILD_UDP : CM_CHILD_TCP;
 
   dest->gc = gc_new ();
 
@@ -3303,7 +3364,7 @@ inherit_context_top (struct context *dest,
   dest->c2.es_owned = false;
 
   dest->c2.event_set = NULL;
-  if (src->options.ce.proto == PROTO_UDPv4)
+  if (proto_is_dgram(src->options.ce.proto))
     do_event_set_init (dest, false);
 }
 

@@ -874,15 +874,20 @@ win_safe_filename (const char *fn)
 static char *
 env_block (const struct env_set *es)
 {
+  char * force_path = "PATH=C:\\Windows\\System32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem";
+
   if (es)
     {
       struct env_item *e;
       char *ret;
       char *p;
       size_t nchars = 1;
+      bool path_seen = false;
       
       for (e = es->list; e != NULL; e = e->next)
 	nchars += strlen (e->string) + 1;
+
+      nchars += strlen(force_path)+1;
 
       ret = (char *) malloc (nchars);
       check_malloc_return (ret);
@@ -895,7 +900,18 @@ env_block (const struct env_set *es)
 	      strcpy (p, e->string);
 	      p += strlen (e->string) + 1;
 	    }
+	  if ( strncmp(e->string, "PATH=", 5 ) == 0 )
+	    path_seen = true;
 	}
+
+      /* make sure PATH is set */
+      if ( !path_seen )
+	{
+	  msg( M_INFO, "env_block: add %s", force_path );
+	  strcpy( p, force_path );
+	  p += strlen(force_path) + 1;
+	}
+
       *p = '\0';
       return ret;
     }
@@ -952,6 +968,8 @@ int
 openvpn_execve (const struct argv *a, const struct env_set *es, const unsigned int flags)
 {
   int ret = -1;
+  static bool exec_warn = false;
+
   if (a && a->argv[0])
     {
       if (openvpn_execve_allowed (flags))
@@ -1004,9 +1022,10 @@ openvpn_execve (const struct argv *a, const struct env_set *es, const unsigned i
 	      ASSERT (0);
 	    }
 	}
-      else
+      else if (!exec_warn && (script_security < SSEC_SCRIPTS))
 	{
 	  msg (M_WARN, SCRIPT_SECURITY_WARNING);
+          exec_warn = true;
 	}
     }
   else
