@@ -408,6 +408,7 @@ multi_process_outgoing_tun (struct multi_context *m, const unsigned int mpp_flag
 #ifdef ENABLE_VLAN_TAGGING
   void multi_prepend_8021q_vlan_tag (const struct context *c,
 				     struct buffer *buf);
+  void multi_remove_8021q_tag (struct buffer *buf);
 #endif
   struct multi_instance *mi = m->pending;
   bool ret = true;
@@ -429,6 +430,12 @@ multi_process_outgoing_tun (struct multi_context *m, const unsigned int mpp_flag
 	  /* Packet is coming from the wrong VID, drop it.  */
 	  mi->context.c2.to_tun.len = 0;
 	}
+      else if (mi->context.options.vlan_strip_prio)
+	{
+	  /* Strip priority-tagged packets.  In case the packet is
+	     priority-tagged, remove the tagging.  */
+	  multi_remove_8021q_tag (&mi->context.c2.to_tun);
+	}
     }
   else if (m->top.options.vlan_accept == VAF_ALL)
     {
@@ -440,6 +447,12 @@ multi_process_outgoing_tun (struct multi_context *m, const unsigned int mpp_flag
 	  /* Packets need to be VLAN-tagged, because the packet's VID does not
 	     match the port's PVID.  */
 	  multi_prepend_8021q_vlan_tag (&mi->context, &mi->context.c2.to_tun);
+	}
+      else if (mi->context.options.vlan_strip_prio)
+	{
+	  /* Strip priority-tagged packets.  In case the packet is
+	     priority-tagged, remove the tagging.  */
+	  multi_remove_8021q_tag (&mi->context.c2.to_tun);
 	}
     }
   else if (m->top.options.vlan_accept == VAF_ONLY_VLAN_TAGGED)

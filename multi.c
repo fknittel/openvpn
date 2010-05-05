@@ -2190,6 +2190,10 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
  *   Accepts both VLAN-tagged and untagged (or priority-tagged) frames and
  *   and handles them as described above.
  *
+ * If vlan_strip_prio is set, any frames that only consist of priority-tagging
+ * (VID == 0) have their 802.1Q header removed, so that they are completely
+ * untagged.
+ *
  * @param c   The global context.
  * @param buf The ethernet frame.
  * @return    Returns -1 if the frame is dropped or the VID if it is accepted.
@@ -2242,13 +2246,14 @@ multi_remove_8021q_vlan_tag (const struct context *c, struct buffer *buf)
 	  goto drop;
 	}
 
-      /* We return the global PVID as the VID for the priority-tagged frame. */
-      return c->options.vlan_pvid;
+      /* We set the global PVID as the VID for the priority-tagged frame. */
+      vid = c->options.vlan_pvid;
     }
 
-  if (pcp == 0)
+  if (pcp == 0 || c->options.vlan_strip_prio)
     {
-      /* VLAN-tagged without priority information. */
+      /* VLAN-tagged without priority information or vlan_strip_prio was set,
+	 in which case we strip the priority tagging. */
 
       msg (D_VLAN_DEBUG, "removing vlan-tag from frame: vid: %u, wrapped proto/len: 0x%04x",
            vid, ntohs (vlanhdr.proto));
@@ -2274,6 +2279,47 @@ drop:
   /* Drop the frame. */
   buf->len = 0;
   return -1;
+}
+
+/*
+ * Removes 802.1Q-tagging from the ethernet frame.  Does nothing in case the
+ * frame has no 802.1Q-tagging.
+ *
+ * @param buf The ethernet frame.
+ */
+void
+multi_remove_8021q_tag (struct buffer *buf)
+{
+  struct openvpn_ethhdr eth;
+  struct openvpn_8021qhdr vlanhdr;
+  uint16_t vid;
+  uint16_t pcp;
+
+  if (BLEN (buf) < (sizeof (struct openvpn_8021qhdr)))
+    {
+      /* Tiny packet.  Nothing to do.  */
+      return;
+    }
+
+  vlanhdr = *(const struct openvpn_8021qhdr *) BPTR (buf);
+
+  if (ntohs (vlanhdr.tpid) != OPENVPN_ETH_P_8021Q)
+    {
+      /* Untagged packet.  Nothing to do.  */
+      return;
+    }
+  /* Tagged packet.   */
+
+  vid = vlanhdr_get_vid (&vlanhdr);
+  pcp = vlanhdr_get_pcp (&vlanhdr);
+
+  /* Remove tagging.  */
+  msg (D_VLAN_DEBUG, "removing tagging from frame: vid: %u, pcp: %u, wrapped proto/len: 0x%04x",
+       vid, pcp, ntohs (vlanhdr.proto));
+  memcpy (&eth, &vlanhdr, sizeof (eth));
+  eth.proto = vlanhdr.proto;
+  buf_advance (buf, SIZE_ETH_TO_8021Q_HDR);
+  memcpy (BPTR (buf), &eth, sizeof eth);
 }
 
 /*
