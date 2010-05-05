@@ -2461,7 +2461,8 @@ multi_prepend_vlan_tag (const struct context *c, struct buffer *buf)
   eth = *(const struct openvpn_ethhdr *) BPTR (buf);
   if (ntohs (eth.proto) == OPENVPN_ETH_P_8021Q)
     {
-      /* Priority-tagged frame. */
+      /* Priority-tagged frame.  (VLAN-tagged frames couldn't have reached us
+         here.)  */
 
       /* Frame too small for header type? */
       if (BLEN (buf) < (int) (sizeof (struct openvpn_8021qhdr)))
