@@ -613,7 +613,7 @@ static inline bool
 multi_process_outgoing_tun(struct multi_context *m, const unsigned int mpp_flags)
 {
 #ifdef ENABLE_VLAN_TAGGING
-    void multi_prepend_vlan_tag(const struct context *c, struct buffer *buf);
+    void multi_prepend_8021q_vlan_tag(const struct context *c, struct buffer *buf);
 #endif
     struct multi_instance *mi = m->pending;
     bool ret = true;
@@ -645,13 +645,13 @@ multi_process_outgoing_tun(struct multi_context *m, const unsigned int mpp_flags
         {
             /* Packets need to be VLAN-tagged, because the packet's VID does not
                match the port's PVID.  */
-            multi_prepend_vlan_tag(&mi->context, &mi->context.c2.to_tun);
+            multi_prepend_8021q_vlan_tag(&mi->context, &mi->context.c2.to_tun);
         }
     }
     else if (m->top.options.vlan_accept == VAF_ONLY_VLAN_TAGGED)
     {
         /* All packets on the port (the tap device) need to be VLAN-tagged.  */
-        multi_prepend_vlan_tag(&mi->context, &mi->context.c2.to_tun);
+        multi_prepend_8021q_vlan_tag(&mi->context, &mi->context.c2.to_tun);
     }
 #endif
     process_outgoing_tun(&mi->context);
