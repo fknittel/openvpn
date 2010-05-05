@@ -1,5 +1,13 @@
+openvpn (2.1.0+git-1.5) local; urgency=low
+
+  * Non-maintainer upload.
+  * Pulled in updated feat_vlan with WIP --vlan-strip-prio global option.
+
+ -- Fabian Knittel <fabian.knittel@avona.com>  Wed, 05 May 2010 21:19:19 +0200
+
 openvpn (2.1.0+git-1.4) local; urgency=low
 
+  * Non-maintainer upload.
   * Included fix to feat_misc script handling (commit
     0b8c00c2e3e08fcc8ad93c464f7f55b0a1ccb7f6).
 
