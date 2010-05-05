@@ -539,6 +539,7 @@ struct options
 
 #ifdef ENABLE_VLAN_TAGGING
   bool vlan_tagging;
+  bool vlan_strip_prio;
   enum vlan_acceptable_frames vlan_accept;
   uint16_t vlan_pvid;
 #endif

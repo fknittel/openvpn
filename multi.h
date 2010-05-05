@@ -427,7 +427,9 @@ static inline bool
 multi_process_outgoing_tun (struct multi_context *m, const unsigned int mpp_flags)
 {
 #ifdef ENABLE_VLAN_TAGGING
-  void multi_prepend_vlan_tag (const struct context *c, struct buffer *buf);
+  void multi_prepend_8021q_vlan_tag (const struct context *c,
+				     struct buffer *buf);
+  void multi_remove_8021q_tag (struct buffer *buf);
 #endif
   struct multi_instance *mi = m->pending;
   bool ret = true;
@@ -442,21 +444,42 @@ multi_process_outgoing_tun (struct multi_context *m, const unsigned int mpp_flag
 #ifdef ENABLE_VLAN_TAGGING
   if (m->top.options.vlan_accept == VAF_ONLY_UNTAGGED_OR_PRIORITY)
     {
-      /* Packets aren't tagged on the tap device. */
+      /* Packets aren't VLAN-tagged on the tap device.  */
 
       if (m->top.options.vlan_pvid != mi->context.options.vlan_pvid)
 	{
-	  /* Packet is coming from the wrong VID, drop it. */
+	  /* Packet is coming from the wrong VID, drop it.  */
 	  mi->context.c2.to_tun.len = 0;
 	}
+      else if (mi->context.options.vlan_strip_prio)
+	{
+	  /* Strip priority-tagged packets.  In case the packet is
+	     priority-tagged, remove the tagging.  */
+	  multi_remove_8021q_tag (&mi->context.c2.to_tun);
+	}
     }
-  else if (m->top.options.vlan_accept == VAF_ONLY_VLAN_TAGGED ||
-	   (m->top.options.vlan_accept == VAF_ALL &&
-	    m->top.options.vlan_pvid != mi->context.options.vlan_pvid))
+  else if (m->top.options.vlan_accept == VAF_ALL)
     {
-      /* Packets need to be tagged.  Either because all packets are tagged or
-         because the vid matches the port's pvid. */
-      multi_prepend_vlan_tag (&mi->context, &mi->context.c2.to_tun);
+      /* Packets either need to be VLAN-tagged or not, depending on the
+	 packet's originating VID and the port's native VID (PVID).  */
+
+      if (m->top.options.vlan_pvid != mi->context.options.vlan_pvid)
+	{
+	  /* Packets need to be VLAN-tagged, because the packet's VID does not
+	     match the port's PVID.  */
+	  multi_prepend_8021q_vlan_tag (&mi->context, &mi->context.c2.to_tun);
+	}
+      else if (mi->context.options.vlan_strip_prio)
+	{
+	  /* Strip priority-tagged packets.  In case the packet is
+	     priority-tagged, remove the tagging.  */
+	  multi_remove_8021q_tag (&mi->context.c2.to_tun);
+	}
+    }
+  else if (m->top.options.vlan_accept == VAF_ONLY_VLAN_TAGGED)
+    {
+      /* All packets on the port (the tap device) need to be VLAN-tagged.  */
+      multi_prepend_8021q_vlan_tag (&mi->context, &mi->context.c2.to_tun);
     }
 #endif
   process_outgoing_tun (&mi->context);
