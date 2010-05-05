@@ -455,6 +455,8 @@ static const char usage_message[] =
   "--vlan-tagging  : Enable 802.1Q-based VLAN tagging.\n"
   "--vlan-accept tagged|untagged|all : Set VLAN tagging mode. Default is 'all'.\n"
   "--vlan-pvid v   : Sets the Port VLAN Identifier. Defaults to 1.\n"
+  "--vlan-strip-prio : Strip tagging from outgoing and incoming packets that are\n"
+  "                  only priority-tagged, not VLAN-tagged.\n"
 #endif
 #endif
   "\n"
@@ -1984,6 +1986,8 @@ options_postprocess_verify_ce (const struct options *options, const struct conne
 	    msg (M_USAGE, "--vlan-accept requires --vlan-tagging");
 	  if (options->vlan_pvid != defaults.vlan_pvid)
 	    msg (M_USAGE, "--vlan-pvid requires --vlan-tagging");
+	  if (options->vlan_strip_prio != defaults.vlan_strip_prio)
+	    msg (M_USAGE, "--vlan-strip-prio requires --vlan-tagging");
 	}
 #endif
     }
@@ -6174,6 +6178,11 @@ add_option (struct options *options,
 	  msg (msglevel, "the parameter of --vlan-pvid parameters must be >= %u and <= %u", OPENVPN_8021Q_MIN_VID, OPENVPN_8021Q_MAX_VID);
 	  goto err;
 	}
+    }
+  else if (streq (p[0], "vlan-strip-prio"))
+    {
+      VERIFY_PERMISSION (OPT_P_GENERAL);
+      options->vlan_strip_prio = true;
     }
 #endif
   else
