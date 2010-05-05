@@ -2194,7 +2194,7 @@ done:
  * @return    Returns true if the frame should be dropped, false otherwise.
  */
 static bool
-buf_filter_incoming_vlan_tags (const struct buffer *buf)
+buf_filter_incoming_8021q_vlan_tag (const struct buffer *buf)
 {
   const struct openvpn_8021qhdr *vlanhdr;
   uint16_t vid;
@@ -2371,7 +2371,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 #ifdef ENABLE_VLAN_TAGGING
 	      if (m->top.options.vlan_tagging)
 		{
-		  if (buf_filter_incoming_vlan_tags (&c->c2.to_tun))
+		  if (buf_filter_incoming_8021q_vlan_tag (&c->c2.to_tun))
 		    {
 		      /* Drop tagged frames. */
 		      c->c2.to_tun.len = 0;
@@ -2483,7 +2483,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
  * @return    Returns -1 if the frame is dropped or the VID if it is accepted.
  */
 static int16_t
-remove_vlan_tag (const struct context *c, struct buffer *buf)
+multi_remove_8021q_vlan_tag (const struct context *c, struct buffer *buf)
 {
   struct openvpn_ethhdr eth;
   struct openvpn_8021qhdr vlanhdr;
@@ -2569,7 +2569,7 @@ drop:
  * or VAF_ALL and a matching PVID.
  */
 void
-multi_prepend_vlan_tag (const struct context *c, struct buffer *buf)
+multi_prepend_8021q_vlan_tag (const struct context *c, struct buffer *buf)
 {
   struct openvpn_ethhdr eth;
   struct openvpn_8021qhdr *vlanhdr;
@@ -2669,10 +2669,9 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
 #ifdef ENABLE_VLAN_TAGGING
       if (dev_type == DEV_TYPE_TAP && m->top.options.vlan_tagging)
         {
-	  if ((vid = remove_vlan_tag (&m->top, &m->top.c2.buf)) == -1)
-	    {
-	      return false;
-	    }
+	  if ((vid = multi_remove_8021q_vlan_tag (&m->top,
+						  &m->top.c2.buf)) == -1)
+	    return false;
         }
 #endif
 
