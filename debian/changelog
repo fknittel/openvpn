@@ -1,3 +1,10 @@
+openvpn (2.1.0+git20100505.001217-1) fsmi-lenny; urgency=low
+
+  * Non-maintainer upload.
+  * Update version to describe changes in orig tar ball.
+
+ -- Fabian Knittel <fabian.knittel@avona.com>  Mon, 10 May 2010 00:12:17 +0200
+
 openvpn (2.1.0+git-1.5) local; urgency=low
 
   * Non-maintainer upload.
