@@ -1,4 +1,4 @@
-openvpn (2.1.0+git20100505.001217-1) fsmi-lenny; urgency=low
+openvpn (2.1.0+git.fsmi.allmerged.13ae64d-1.1) fsmi-lenny; urgency=low
 
   * Non-maintainer upload.
   * Update version to describe changes in orig tar ball.
