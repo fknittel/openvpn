@@ -211,6 +211,12 @@ AC_ARG_ENABLE(selinux,
    [SELINUX="yes"]
 )
 
+AC_ARG_ENABLE(vlan-tagging,
+   [  --disable-vlan-tagging  Disable support for 802.1Q-based VLAN tagging],
+   [VLAN_TAGGING="$enableval"],
+   [VLAN_TAGGING="yes"]
+)
+
 AC_ARG_WITH(ssl-headers,
    [  --with-ssl-headers=DIR  Crypto/SSL Include files location],
    [CS_HDR_DIR="$withval"]
@@ -884,6 +890,12 @@ if test "$SELINUX" = "yes"; then
       [AC_MSG_RESULT([SELinux headers not found.])]
    )
 fi
+
+dnl enable --vlan-tagging
+if test "$VLAN_TAGGING" = "yes"; then
+   AC_DEFINE(ENABLE_VLAN_TAGGING, 1, [Enable 802.1Q-based VLAN tagging/untagging])
+fi
+
 
 TAP_ID="PRODUCT_TAP_ID"
 TAP_WIN32_MIN_MAJOR="PRODUCT_TAP_WIN32_MIN_MAJOR"

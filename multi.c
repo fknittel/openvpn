@@ -6,6 +6,7 @@
  *             packet compression.
  *
  *  Copyright (C) 2002-2010 OpenVPN Technologies, Inc. <sales@openvpn.net>
+ *  Copyright (C) 2010 Fabian Knittel <fabian.knittel@avona.com>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2
@@ -2132,7 +2133,8 @@ static void
 multi_bcast (struct multi_context *m,
 	     const struct buffer *buf,
 	     const struct multi_instance *sender_instance,
-	     const struct mroute_addr *sender_addr)
+	     const struct mroute_addr *sender_addr,
+	     uint16_t vid)
 {
   struct hash_iterator hi;
   struct hash_element *he;
@@ -2176,6 +2178,10 @@ multi_bcast (struct multi_context *m,
 		      continue;
 		    }
 		}
+#endif
+#ifdef ENABLE_VLAN_TAGGING
+	      if (vid != 0 && vid != mi->context.options.vlan_pvid)
+		continue;
 #endif
 	      multi_add_mbuf (m, mi, mb);
 	    }
@@ -2291,6 +2297,37 @@ multi_process_post (struct multi_context *m, struct multi_instance *mi, const un
   return ret;
 }
 
+#ifdef ENABLE_VLAN_TAGGING
+/*
+ * Decides whether or not to drop an ethernet frame.  VLAN-tagged frames are
+ * dropped.  All other frames are accepted.
+ *
+ * @param buf The ethernet frame.
+ * @return    Returns true if the frame should be dropped, false otherwise.
+ */
+static bool
+buf_filter_incoming_8021q_vlan_tag (const struct buffer *buf)
+{
+  const struct openvpn_8021qhdr *vlanhdr;
+  uint16_t vid;
+
+  if (BLEN (buf) < (int) sizeof (struct openvpn_8021qhdr))
+    return false; /* Frame too small.  */
+
+  vlanhdr = (const struct openvpn_8021qhdr *) BPTR (buf);
+
+  if (ntohs (vlanhdr->tpid) != OPENVPN_ETH_P_8021Q)
+    return false; /* Frame is untagged.  */
+
+  vid = vlanhdr_get_vid (vlanhdr);
+  if (vid == 0)
+    return false; /* Frame only priority-tagged.  */
+
+  msg (D_VLAN_DEBUG, "dropping VLAN-tagged incoming frame, vid: %u", vid);
+  return true;
+}
+#endif
+
 /*
  * Process packets in the TCP/UDP socket -> TUN/TAP interface direction,
  * i.e. client -> server direction.
@@ -2348,7 +2385,8 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 							      NULL,
 							      NULL,
 							      &c->c2.to_tun,
-							      DEV_TYPE_TUN);
+							      DEV_TYPE_TUN,
+							      0);
 
 	      /* drop packet if extract failed */
 	      if (!(mroute_flags & MROUTE_EXTRACT_SUCCEEDED))
@@ -2369,7 +2407,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 		  if (mroute_flags & MROUTE_EXTRACT_MCAST)
 		    {
 		      /* for now, treat multicast as broadcast */
-		      multi_bcast (m, &c->c2.to_tun, m->pending, NULL);
+		      multi_bcast (m, &c->c2.to_tun, m->pending, NULL, 0);
 		    }
 		  else /* possible client to client routing */
 		    {
@@ -2406,9 +2444,26 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 	    }
 	  else if (TUNNEL_TYPE (m->top.c1.tuntap) == DEV_TYPE_TAP)
 	    {
+#ifdef ENABLE_VLAN_TAGGING
+	      uint16_t vid = 0;
+#else
+	      const uint16_t vid = 0;
+#endif
 #ifdef ENABLE_PF
 	      struct mroute_addr edest;
 	      mroute_addr_reset (&edest);
+#endif
+#ifdef ENABLE_VLAN_TAGGING
+	      if (m->top.options.vlan_tagging)
+		{
+		  if (buf_filter_incoming_8021q_vlan_tag (&c->c2.to_tun))
+		    {
+		      /* Drop tagged frames. */
+		      c->c2.to_tun.len = 0;
+		    }
+		  else
+		    vid = c->options.vlan_pvid;
+		}
 #endif
 	      /* extract packet source and dest addresses */
 	      mroute_flags = mroute_extract_addr_from_packet (&src,
@@ -2420,7 +2475,8 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 							      NULL,
 #endif
 							      &c->c2.to_tun,
-							      DEV_TYPE_TAP);
+							      DEV_TYPE_TAP,
+							      vid);
 
 	      if (mroute_flags & MROUTE_EXTRACT_SUCCEEDED)
 		{
@@ -2431,7 +2487,7 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
 			{
 			  if (mroute_flags & (MROUTE_EXTRACT_BCAST|MROUTE_EXTRACT_MCAST))
 			    {
-			      multi_bcast (m, &c->c2.to_tun, m->pending, NULL);
+			      multi_bcast (m, &c->c2.to_tun, m->pending, NULL, vid);
 			    }
 			  else /* try client-to-client routing */
 			    {
@@ -2489,6 +2545,211 @@ multi_process_incoming_link (struct multi_context *m, struct multi_instance *ins
   return ret;
 }
 
+#ifdef ENABLE_VLAN_TAGGING
+/*
+ * For vlan_accept == VAF_ONLY_UNTAGGED_OR_PRIORITY:
+ *   Only untagged frames and frames that are priority-tagged (VID == 0) are
+ *   accepted.  (This means that VLAN-tagged frames are dropped.)  For frames
+ *   that aren't dropped, the global vlan_pvid is returned as VID.
+ *
+ * For vlan_accept == VAF_ONLY_VLAN_TAGGED:
+ *   If a frame is VLAN-tagged and contains no priority information, the
+ *   tagging is removed and the embedded VID is returned.
+ *   If a frame is VLAN-tagged and contains priority information, the frame
+ *   is turned into a priority frame and the embedded VID is returned.
+ *   If a frame isn't VLAN-tagged, the frame is dropped.
+ *
+ * For vlan_accept == VAF_ALL:
+ *   Accepts both VLAN-tagged and untagged (or priority-tagged) frames and
+ *   and handles them as described above.
+ *
+ * If vlan_strip_prio is set, any frames that only consist of priority-tagging
+ * (VID == 0) have their 802.1Q header removed, so that they are completely
+ * untagged.
+ *
+ * @param c   The global context.
+ * @param buf The ethernet frame.
+ * @return    Returns -1 if the frame is dropped or the VID if it is accepted.
+ */
+static int16_t
+multi_remove_8021q_vlan_tag (const struct context *c, struct buffer *buf)
+{
+  struct openvpn_ethhdr eth;
+  struct openvpn_8021qhdr vlanhdr;
+  uint16_t vid;
+  uint16_t pcp;
+
+  if (BLEN (buf) < (sizeof (struct openvpn_8021qhdr)))
+    goto drop;
+
+  vlanhdr = *(const struct openvpn_8021qhdr *) BPTR (buf);
+
+  if (ntohs (vlanhdr.tpid) != OPENVPN_ETH_P_8021Q)
+    {
+      /* Untagged packet. */
+
+      if (c->options.vlan_accept == VAF_ONLY_VLAN_TAGGED)
+	{
+	  /* We only accept vlan-tagged frames, so drop frames without vlan-tag
+	   */
+	  msg (D_VLAN_DEBUG, "dropping frame without vlan-tag (proto/len 0x%04x)",
+	       ntohs (vlanhdr.tpid));
+	  goto drop;
+	}
+
+      msg (D_VLAN_DEBUG, "assuming pvid for frame without vlan-tag, pvid: %u (proto/len 0x%04x)",
+	   c->options.vlan_pvid, ntohs (vlanhdr.tpid));
+      /* We return the global PVID as the VID for the untagged frame. */
+      return c->options.vlan_pvid;
+    }
+
+  /* Tagged packet. */
+
+  vid = vlanhdr_get_vid (&vlanhdr);
+  pcp = vlanhdr_get_pcp (&vlanhdr);
+
+  if (c->options.vlan_accept == VAF_ONLY_UNTAGGED_OR_PRIORITY)
+    {
+      if (vid != 0)
+	{
+	  /* We only accept untagged frames or priority-tagged frames. So drop
+	     VLAN-tagged frames. */
+	  msg (D_VLAN_DEBUG, "dropping frame with vlan-tag, vid: %u (proto/len 0x%04x)",
+	       vid, ntohs (vlanhdr.proto));
+	  goto drop;
+	}
+
+      /* We set the global PVID as the VID for the priority-tagged frame. */
+      vid = c->options.vlan_pvid;
+    }
+
+  if (pcp == 0 || c->options.vlan_strip_prio)
+    {
+      /* VLAN-tagged without priority information or vlan_strip_prio was set,
+	 in which case we strip the priority tagging. */
+
+      msg (D_VLAN_DEBUG, "removing vlan-tag from frame: vid: %u, wrapped proto/len: 0x%04x",
+           vid, ntohs (vlanhdr.proto));
+      memcpy (&eth, &vlanhdr, sizeof (eth));
+      eth.proto = vlanhdr.proto;
+
+      buf_advance (buf, SIZE_ETH_TO_8021Q_HDR);
+      memcpy (BPTR (buf), &eth, sizeof eth);
+    }
+  else
+    {
+      /* VLAN-tagged _with_ priority information.  We turn this frame into
+	 a pure priority frame.  I.e. we clear out the VID but leave the rest
+	 of the header intact. */
+      msg (D_VLAN_DEBUG, "removing vlan-tag from priority frame: vid: %u, wrapped proto/len: 0x%04x, prio: %u",
+           vid, ntohs (vlanhdr.proto), pcp);
+      vlanhdr_set_vid (&vlanhdr, 0);
+      memcpy (BPTR (buf), &vlanhdr, sizeof vlanhdr);
+    }
+
+  return vid;
+drop:
+  /* Drop the frame. */
+  buf->len = 0;
+  return -1;
+}
+
+/*
+ * Removes 802.1Q-tagging from the ethernet frame.  Does nothing in case the
+ * frame has no 802.1Q-tagging.
+ *
+ * @param buf The ethernet frame.
+ */
+void
+multi_remove_8021q_tag (struct buffer *buf)
+{
+  struct openvpn_ethhdr eth;
+  struct openvpn_8021qhdr vlanhdr;
+  uint16_t vid;
+  uint16_t pcp;
+
+  if (BLEN (buf) < (sizeof (struct openvpn_8021qhdr)))
+    {
+      /* Tiny packet.  Nothing to do.  */
+      return;
+    }
+
+  vlanhdr = *(const struct openvpn_8021qhdr *) BPTR (buf);
+
+  if (ntohs (vlanhdr.tpid) != OPENVPN_ETH_P_8021Q)
+    {
+      /* Untagged packet.  Nothing to do.  */
+      return;
+    }
+  /* Tagged packet.   */
+
+  vid = vlanhdr_get_vid (&vlanhdr);
+  pcp = vlanhdr_get_pcp (&vlanhdr);
+
+  /* Remove tagging.  */
+  msg (D_VLAN_DEBUG, "removing tagging from frame: vid: %u, pcp: %u, wrapped proto/len: 0x%04x",
+       vid, pcp, ntohs (vlanhdr.proto));
+  memcpy (&eth, &vlanhdr, sizeof (eth));
+  eth.proto = vlanhdr.proto;
+  buf_advance (buf, SIZE_ETH_TO_8021Q_HDR);
+  memcpy (BPTR (buf), &eth, sizeof eth);
+}
+
+/*
+ * Adds VLAN tagging to a frame.  Assumes vlan_accept == VAF_ONLY_VLAN_TAGGED
+ * or VAF_ALL and a matching PVID.
+ */
+void
+multi_prepend_8021q_vlan_tag (const struct context *c, struct buffer *buf)
+{
+  struct openvpn_ethhdr eth;
+  struct openvpn_8021qhdr *vlanhdr;
+
+  /* Frame too small? */
+  if (BLEN (buf) < (int) sizeof (struct openvpn_ethhdr))
+    goto drop;
+
+  eth = *(const struct openvpn_ethhdr *) BPTR (buf);
+  if (ntohs (eth.proto) == OPENVPN_ETH_P_8021Q)
+    {
+      /* Priority-tagged frame.  (VLAN-tagged frames couldn't have reached us
+         here.)  */
+
+      /* Frame too small for header type? */
+      if (BLEN (buf) < (int) (sizeof (struct openvpn_8021qhdr)))
+	goto drop;
+
+      vlanhdr = (struct openvpn_8021qhdr *) BPTR (buf);
+    }
+  else
+    {
+      /* Untagged frame. */
+
+      /* Not enough head room for VLAN tag? */
+      if (buf_reverse_capacity (buf) < SIZE_ETH_TO_8021Q_HDR)
+	goto drop;
+
+      vlanhdr = (struct openvpn_8021qhdr *) buf_prepend (buf, SIZE_ETH_TO_8021Q_HDR);
+
+      /* Initialise VLAN-tag ... */
+      memcpy (vlanhdr, &eth, sizeof eth);
+      vlanhdr->tpid = htons (OPENVPN_ETH_P_8021Q);
+      vlanhdr->proto = eth.proto;
+      vlanhdr_set_pcp (vlanhdr, 0);
+      vlanhdr_set_cfi (vlanhdr, 0);
+    }
+
+  vlanhdr_set_vid (vlanhdr, c->options.vlan_pvid);
+
+  msg (D_VLAN_DEBUG, "tagging frame: vid %u (wrapping proto/len: %04x)",
+       c->options.vlan_pvid, vlanhdr->proto);
+  return;
+drop:
+  /* Drop the frame. */
+  buf->len = 0;
+}
+#endif /* ENABLE_VLAN_TAGGING */
+
 /*
  * Process packets in the TUN/TAP interface -> TCP/UDP socket direction,
  * i.e. server -> client direction.
@@ -2504,6 +2765,11 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
       unsigned int mroute_flags;
       struct mroute_addr src, dest;
       const int dev_type = TUNNEL_TYPE (m->top.c1.tuntap);
+#ifdef ENABLE_VLAN_TAGGING
+      int16_t vid = 0;
+#else
+      const int16_t vid = 0;
+#endif
 
 #ifdef ENABLE_PF
       struct mroute_addr esrc, *e1, *e2;
@@ -2531,6 +2797,15 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
        * the appropriate multi_instance object.
        */
 
+#ifdef ENABLE_VLAN_TAGGING
+      if (dev_type == DEV_TYPE_TAP && m->top.options.vlan_tagging)
+        {
+	  if ((vid = multi_remove_8021q_vlan_tag (&m->top,
+						  &m->top.c2.buf)) == -1)
+	    return false;
+        }
+#endif
+
       mroute_flags = mroute_extract_addr_from_packet (&src,
 						      &dest,
 #ifdef ENABLE_PF
@@ -2540,7 +2815,8 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
 #endif
 						      NULL,
 						      &m->top.c2.buf,
-						      dev_type);
+						      dev_type,
+						      vid);
 
       if (mroute_flags & MROUTE_EXTRACT_SUCCEEDED)
 	{
@@ -2551,9 +2827,9 @@ multi_process_incoming_tun (struct multi_context *m, const unsigned int mpp_flag
 	    {
 	      /* for now, treat multicast as broadcast */
 #ifdef ENABLE_PF
-	      multi_bcast (m, &m->top.c2.buf, NULL, e2);
+	      multi_bcast (m, &m->top.c2.buf, NULL, e2, vid);
 #else
-	      multi_bcast (m, &m->top.c2.buf, NULL, NULL);
+	      multi_bcast (m, &m->top.c2.buf, NULL, NULL, vid);
 #endif
 	    }
 	  else
@@ -2722,7 +2998,7 @@ gremlin_flood_clients (struct multi_context *m)
 	ASSERT (buf_write_u8 (&buf, get_random () & 0xFF));
 
       for (i = 0; i < parm.n_packets; ++i)
-	multi_bcast (m, &buf, NULL, NULL);
+	multi_bcast (m, &buf, NULL, NULL, 0);
 
       gc_free (&gc);
     }
