@@ -1,3 +1,11 @@
+openvpn (2.1.0+git.fsmi.allmerged.c8f439e-1.1) fsmi-lenny; urgency=low
+
+  * Non-maintainer upload.
+  * Rebase to fsmi_allmerged c8f439e3e1f61c582f948a3ba5b1315ff3fee76b:
+    + fix use after free in client-connect deferred code.
+
+ -- Fabian Knittel <fabian.knittel@avona.com>  Tue, 11 May 2010 00:25:59 +0200
+
 openvpn (2.1.0+git.fsmi.allmerged.13ae64d-1.1) fsmi-lenny; urgency=low
 
   * Non-maintainer upload.
