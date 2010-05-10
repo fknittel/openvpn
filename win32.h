@@ -193,7 +193,10 @@ struct overlapped_io {
   DWORD flags;
   int status;
   bool addr_defined;
-  struct sockaddr_in addr;
+  union {
+    struct sockaddr_in addr;
+    struct sockaddr_in6 addr6;
+  };
   int addrlen;
   struct buffer buf_init;
   struct buffer buf;
@@ -267,6 +270,8 @@ char *get_win_sys_path (void);
 
 /* call self in a subprocess */
 void fork_to_self (const char *cmdline);
+const char *inet_ntop(int af, const void *src, char *dst, socklen_t size);
+int inet_pton(int af, const char *src, void *st);
 
 #endif
 #endif

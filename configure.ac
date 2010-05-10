@@ -98,6 +98,12 @@ AC_ARG_ENABLE(plugins,
    [PLUGINS="yes"]
 )
 
+AC_ARG_ENABLE(eurephia,
+   [  --disable-eurephia      Disable support for the eurephia plug-in],
+   [EUREPHIA="$enableval"],
+   [EUREPHIA="yes"]
+)
+
 AC_ARG_ENABLE(management,
    [  --disable-management    Disable management server support],
    [MANAGEMENT="$enableval"],
@@ -132,6 +138,12 @@ AC_ARG_ENABLE(multihome,
    [  --disable-multihome     Disable multi-homed UDP server support (--multihome)],
    [MULTIHOME="$enableval"],
    [MULTIHOME="yes"]
+)
+
+AC_ARG_ENABLE(ipv6,
+   [  --disable-ipv6          Disable UDP/IPv6 support],
+   [PF_INET6="$enableval"],
+   [PF_INET6="yes"]
 )
 
 AC_ARG_ENABLE(port-share,
@@ -555,6 +567,16 @@ LDFLAGS="$LDFLAGS -Wl,--fatal-warnings"
 AC_CHECK_FUNC(epoll_create, AC_DEFINE(HAVE_EPOLL_CREATE, 1, [epoll_create function is defined]))
 LDFLAGS="$OLDLDFLAGS"
 
+dnl ipv6 support
+if test "$PF_INET6" = "yes"; then
+  AC_CHECKING([for struct sockaddr_in6 for IPv6 support])
+  AC_CHECK_TYPE(
+      [struct sockaddr_in6],
+      [AC_DEFINE(USE_PF_INET6, 1, [struct sockaddr_in6 is needed for IPv6 peer support])],
+      [],
+      [#include "syshead.h"])
+fi
+
 dnl
 dnl check for valgrind tool
 dnl
@@ -637,6 +659,9 @@ if test "${WIN32}" != "yes"; then
            )],
            [AC_MSG_RESULT([libdl headers not found.])]
       )
+      if test "$EUREPHIA" = "yes"; then
+         AC_DEFINE(ENABLE_EUREPHIA, 1, [Enable support for the eurephia plug-in])
+      fi
    fi
 fi
 
@@ -921,6 +946,23 @@ if test -z "${htmldir}"; then
 	AC_SUBST([htmldir])
 fi
 # end workaround
+
+#
+# Deprecated features
+#
+# See http://www.secure-computing.net/wiki/index.php/OpenVPN/Developer_documentation
+# for more info about the feature deprecation process.
+#
+
+AC_ARG_ENABLE(depr-random-resolv,
+   [  --disable-depr-random-resolv   Deprecated feature: Randomization of hostname resolving when more than one IP address],
+   [DEPRECATE_RANDRESOLV="$enableval"],
+   [DEPRECATE_RANDRESOLV="yes"]
+)
+if test "$DEPRECATE_RANDRESOLV" = "yes"; then
+        AC_DEFINE(DEPRECATED_RANDOM_RESOLV, 1, [Deprecated feature: Randomization of hostname resolving when more than one IP address])
+fi
+
 
 AC_OUTPUT([
 	Makefile

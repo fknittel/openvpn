@@ -756,6 +756,8 @@ or
 .B \-\-dev tunX.
 A warning will be displayed
 if no specific IPv6 TUN support for your OS has been compiled into OpenVPN.
+
+See below for further IPv6-related configuration options.
 .\"*********************************************************
 .TP
 .B \-\-dev-node node
@@ -4319,10 +4321,22 @@ test).
 
 .B cmd
 should return 0 to allow the TLS handshake to proceed, or 1 to fail.
+
+Note that
 .B cmd
-is executed as
+is a command line and as such may (if enclosed in quotes) contain
+whitespace separated arguments.  The first word of
+.B cmd
+is the shell command to execute and the remaining words are its
+arguments.
+When
+.B cmd
+is executed two arguments are appended, as follows:
 
 .B cmd certificate_depth X509_NAME_oneline
+
+These arguments are, respectively, the current certificate depth and
+the X509 common name (cn) of the peer.
 
 This feature is useful if the peer you want to trust has a certificate
 which was signed by a certificate authority who also signed many
@@ -4337,14 +4351,14 @@ in the OpenVPN distribution.
 
 See the "Environmental Variables" section below for
 additional parameters passed as environmental variables.
-
-Note that
-.B cmd
-can be a shell command with multiple arguments, in which
-case all OpenVPN-generated arguments will be appended
-to
-.B cmd
-to build a command line which will be passed to the script.
+.\"*********************************************************
+.TP
+.B --tls-export-cert directory
+Store the certificates the clients uses upon connection to this
+directory. This will be done before --tls-verify is called.  The
+certificates will use a temporary name and will be deleted when
+the tls-verify script returns.  The file name used for the certificate
+is available via the peer_cert environment variable.
 .\"*********************************************************
 .TP
 .B \-\-tls-remote name
@@ -4918,6 +4932,57 @@ if certificates are stored as private objects.
 .B \-\-verb
 option can be used BEFORE this option to produce debugging information.
 .\"*********************************************************
+.SS IPv6 Related Options
+.\"*********************************************************
+The following options exist to support IPv6 tunneling in peer-to-peer
+and client-server mode.  As of now, this is just very basic
+documentation of the IPv6-related options. More documentation can be
+found on http://greenie.muc.de/ipv6/openvpn.html.
+.TP
+.B --ifconfig-ipv6 ipv6addr/bits ipv6remote
+configure IPv6 address
+.B ipv6addr/bits
+on the ``tun'' device.  The second parameter is used as route target for
+.B --route-ipv6
+if no gateway is specified.
+.TP
+.B --route-ipv6 ipv6addr/bits [gateway] [metric]
+setup IPv6 routing in the system to send the specified IPv6 network
+into OpenVPN's ``tun'' device
+.TP
+.B --server-ipv6 ipv6addr/bits
+convenience-function to enable a number of IPv6 related options at
+once, namely
+.B --ifconfig-ipv6, --ifconfig-ipv6-pool, --tun-ipv6
+and
+.B --push tun-ipv6
+Is only accepted if ``--mode server'' or ``--server'' is set.
+.TP
+.B --ifconfig-ipv6-pool ipv6addr/bits
+Specify an IPv6 address pool for dynamic assignment to clients.  The
+pool starts at
+.B ipv6addr
+and increments by +1 for every new client (linear mode).  The
+.B /bits
+setting controls the size of the pool.
+.TP
+.B --ifconfig-ipv6-push ipv6addr/bits ipv6remote
+for ccd/ per-client static IPv6 interface configuration, see
+.B --client-config-dir
+and
+.B --ifconfig-push
+for more details.
+.TP
+.B --iroute-ipv6 ipv6addr/bits
+for ccd/ per-client static IPv6 route configuration, see
+.B --iroute
+for more details how to setup and use this, and how
+.B --iroute
+and
+.B --route
+interact.
+
+.\"*********************************************************
 .SH SCRIPTING AND ENVIRONMENTAL VARIABLES
 OpenVPN exports a series
 of environmental variables for use by user-defined scripts.
@@ -5331,6 +5396,11 @@ than their names as denoted on the command line
 or configuration file.
 .\"*********************************************************
 .TP
+.B peer_cert
+Temporary file name containing the client certificate upon
+connection.  Useful in conjunction with --tls-verify
+.\"*********************************************************
+.TP
 .B script_context
 Set to "init" or "restart" prior to up/down script execution.
 For more information, see
@@ -5427,13 +5497,16 @@ or
 script execution.
 .\"*********************************************************
 .TP
-.B trusted_ip
+.B trusted_ip (or trusted_ip6)
 Actual IP address of connecting client or peer which has been authenticated.
 Set prior to execution of
 .B \-\-ipchange, \-\-client-connect,
 and
 .B \-\-client-disconnect
 scripts.
+If using ipv6 endpoints (udp6, tcp6),
+.B trusted_ip6
+will be set instead.
 .\"*********************************************************
 .TP
 .B trusted_port
@@ -5445,7 +5518,7 @@ and
 scripts.
 .\"*********************************************************
 .TP
-.B untrusted_ip
+.B untrusted_ip (or untrusted_ip6)
 Actual IP address of connecting client or peer which has not been authenticated
 yet.  Sometimes used to
 .B nmap
@@ -5457,6 +5530,9 @@ Set prior to execution of
 and
 .B \-\-auth-user-pass-verify
 scripts.
+If using ipv6 endpoints (udp6, tcp6),
+.B untrusted_ip6
+will be set instead.
 .\"*********************************************************
 .TP
 .B untrusted_port
