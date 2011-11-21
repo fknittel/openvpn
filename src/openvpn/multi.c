@@ -2694,7 +2694,7 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
                 {
                     if (buf_filter_incoming_8021q_vlan_tag(&c->c2.to_tun))
                     {
-                        /* Drop tagged frames. */
+                        /* Drop VLAN-tagged frame. */
                         c->c2.to_tun.len = 0;
                     }
                     else
@@ -2796,10 +2796,8 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
  *   that aren't dropped, the global vlan_pvid is returned as VID.
  *
  * For vlan_accept == VAF_ONLY_VLAN_TAGGED:
- *   If a frame is VLAN-tagged and contains no priority information, the
- *   tagging is removed and the embedded VID is returned.
- *   If a frame is VLAN-tagged and contains priority information, the frame
- *   is turned into a priority frame and the embedded VID is returned.
+ *   If a frame is VLAN-tagged the tagging is removed and the embedded VID is
+ *   returned.  Any included priority information is lost.
  *   If a frame isn't VLAN-tagged, the frame is dropped.
  *
  * For vlan_accept == VAF_ALL:
@@ -2816,7 +2814,6 @@ multi_remove_8021q_vlan_tag(const struct context *c, struct buffer *buf)
     struct openvpn_ethhdr eth;
     struct openvpn_8021qhdr vlanhdr;
     uint16_t vid;
-    uint16_t pcp;
 
     if (BLEN(buf) < (sizeof(struct openvpn_8021qhdr)))
     {
@@ -2827,7 +2824,7 @@ multi_remove_8021q_vlan_tag(const struct context *c, struct buffer *buf)
 
     if (ntohs(vlanhdr.tpid) != OPENVPN_ETH_P_8021Q)
     {
-        /* Untagged packet. */
+        /* Untagged frame. */
 
         if (c->options.vlan_accept == VAF_ONLY_VLAN_TAGGED)
         {
@@ -2844,29 +2841,32 @@ multi_remove_8021q_vlan_tag(const struct context *c, struct buffer *buf)
         return c->options.vlan_pvid;
     }
 
-    /* Tagged packet. */
+    /* Tagged frame. */
 
     vid = vlanhdr_get_vid(&vlanhdr);
-    pcp = vlanhdr_get_pcp(&vlanhdr);
 
     if (c->options.vlan_accept == VAF_ONLY_UNTAGGED_OR_PRIORITY)
     {
+        /* We only accept untagged / prio-tagged frames.
+         */
+
         if (vid != 0)
         {
-            /* We only accept untagged frames or priority-tagged frames. So drop
-               VLAN-tagged frames. */
+            /* VLAN-tagged frame - which isn't acceptable here - so drop it. */
             msg(D_VLAN_DEBUG, "dropping frame with vlan-tag, vid: %u (proto/len 0x%04x)",
-                vid, ntohs(vlanhdr.proto));
+                 vid, ntohs(vlanhdr.proto));
             goto drop;
         }
 
-        /* We return the global PVID as the VID for the priority-tagged frame. */
-        return c->options.vlan_pvid;
+        /* Fall-through for prio-tagged frames. */
     }
 
-    if (pcp == 0)
+    /* At this point the frame is acceptable to us.  It may be prio-tagged and/or
+       VLAN-tagged. */
+
+    if (vid != 0)
     {
-        /* VLAN-tagged without priority information. */
+        /* VLAN-tagged frame.  Strip the tagging.  Any priority information is lost. */
 
         msg(D_VLAN_DEBUG, "removing vlan-tag from frame: vid: %u, wrapped proto/len: 0x%04x",
             vid, ntohs(vlanhdr.proto));
@@ -2875,19 +2875,17 @@ multi_remove_8021q_vlan_tag(const struct context *c, struct buffer *buf)
 
         buf_advance(buf, SIZE_ETH_TO_8021Q_HDR);
         memcpy(BPTR(buf), &eth, sizeof eth);
+
+        return vid;
     }
     else
     {
-        /* VLAN-tagged _with_ priority information.  We turn this frame into
-           a pure priority frame.  I.e. we clear out the VID but leave the rest
-           of the header intact. */
-        msg(D_VLAN_DEBUG, "removing vlan-tag from priority frame: vid: %u, wrapped proto/len: 0x%04x, prio: %u",
-            vid, ntohs(vlanhdr.proto), pcp);
-        vlanhdr_set_vid(&vlanhdr, 0);
-        memcpy(BPTR(buf), &vlanhdr, sizeof vlanhdr);
-    }
+        /* Prio-tagged frame.  We assume that the sender knows what it's doing and
+           don't stript the tagging. */
 
-    return vid;
+        /* We return the global PVID as the VID for the priority-tagged frame. */
+        return c->options.vlan_pvid;
+    }
 drop:
     /* Drop the frame. */
     buf->len = 0;
