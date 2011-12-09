@@ -104,7 +104,6 @@ struct multi_instance {
                                  *   for this VPN tunnel. */
 };
 
-
 /**
  * Main OpenVPN server state structure.
  *
@@ -166,6 +165,16 @@ struct multi_context {
    * Timer object for stale route check
    */
   struct event_timeout stale_routes_check_et;
+};
+
+/**
+ * Return values used by the client connect call-back functions.
+ */
+enum client_connect_return
+{
+  CC_RET_FAILED,
+  CC_RET_SUCCEEDED,
+  CC_RET_SKIPPED
 };
 
 /*
