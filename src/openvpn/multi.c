@@ -46,6 +46,9 @@
 
 /*#define MULTI_DEBUG_EVENT_LOOP*/
 
+static void delete_client_connect_state (struct multi_instance *mi);
+
+
 #ifdef MULTI_DEBUG_EVENT_LOOP
 static const char *
 id (struct multi_instance *mi)
@@ -571,6 +574,8 @@ multi_close_instance (struct multi_context *m,
 #ifdef MANAGEMENT_DEF_AUTH
   set_cc_config (mi, NULL);
 #endif
+
+  delete_client_connect_state (mi);
 
   multi_client_disconnect_script (m, mi);
 
@@ -1572,94 +1577,6 @@ multi_client_connect_setenv (struct multi_context *m,
 
 static void
 multi_client_connect_early_setup (struct multi_context *m,
-				  struct multi_instance *mi);
-static void
-multi_client_connect_source_ccd (struct multi_context *m,
-				 struct multi_instance *mi,
-				 unsigned int *option_types_found);
-static void
-multi_client_connect_call_plugin_v1 (struct multi_context *m,
-				     struct multi_instance *mi,
-				     unsigned int *option_types_found,
-				     int *cc_succeeded,
-				     int *cc_succeeded_count);
-static void
-multi_client_connect_call_plugin_v2 (struct multi_context *m,
-				     struct multi_instance *mi,
-				     unsigned int *option_types_found,
-				     int *cc_succeeded,
-				     int *cc_succeeded_count);
-static void
-multi_client_connect_call_script (struct multi_context *m,
-				  struct multi_instance *mi,
-				  unsigned int *option_types_found,
-				  int *cc_succeeded,
-				  int *cc_succeeded_count);
-static void
-multi_client_connect_late_setup (struct multi_context *m,
-				 struct multi_instance *mi,
-				 const unsigned int option_types_found,
-				 int cc_succeeded,
-				 const int cc_succeeded_count);
-
-/*
- * Called as soon as the SSL/TLS connection authenticates.
- *
- * Instance-specific directives to be processed:
- *
- *   iroute start-ip end-ip
- *   ifconfig-push local remote-netmask
- *   push
- */
-static void
-multi_connection_established (struct multi_context *m, struct multi_instance *mi)
-{
-  if (tls_authentication_status (mi->context.c2.tls_multi, 0) == TLS_AUTHENTICATION_SUCCEEDED)
-    {
-      typedef enum client_connect_return_t (*multi_client_connect_handler)(struct multi_context *m, struct multi_instance *mi, unsigned int *option_types_found);
-
-      multi_client_connect_handler handlers[] = {
-	  multi_client_connect_source_ccd,
-	  multi_client_connect_call_plugin_v1,
-	  multi_client_connect_call_plugin_v2,
-	  multi_client_connect_call_script,
-	  multi_client_connect_mda,
-	  NULL
-      };
-
-      int cur_handler = 0;
-      unsigned int option_types_found = 0;
-      int cc_succeeded = true; /* client connect script status */
-      int cc_succeeded_count = 0;
-      enum client_connect_return ret;
-
-      multi_client_connect_early_setup (m, mi);
-
-      while (succeeded && handlers[cur_handler])
-	{
-	  ret = handlers[cur_handler] (m, mi, &option_types_found);
-	  if (ret == CC_RET_SUCCEEDED)
-	    ++cc_succeeded_count;
-	  else if (ret == CC_RET_FAILED)
-	    succeeded = false;
-	  ++cur_handler;
-	}
-
-      multi_client_connect_late_setup (m, mi, option_types_found, cc_succeeded,
-				       cc_succeeded_count);
-
-      /* set flag so we don't get called again */
-      mi->connection_established_flag = true;
-    }
-
-  /*
-   * Reply now to client's PUSH_REQUEST query
-   */
-  mi->context.c2.push_reply_deferred = false;
-}
-
-static void
-multi_client_connect_early_setup (struct multi_context *m,
 				  struct multi_instance *mi)
 {
   /* lock down the common name and cert hashes so they can't change during
@@ -1993,6 +1910,168 @@ multi_client_connect_late_setup (struct multi_context *m,
   gc_free (&gc);
 }
 
+static enum client_connect_return
+multi_client_connect_fail (struct multi_context *m, struct multi_instance *mi,
+			   unsigned int *option_types_found)
+{
+  /* Called null call-back.  This should never happen.  Fail loudly. */
+  return CC_RET_FAILED;
+}
+
+static void
+new_client_connect_state (struct multi_instance *mi)
+{
+  ASSERT (mi);
+  ALLOC_OBJ_CLEAR (mi->client_connect_state, struct client_connect_state);
+
+  mi->client_connect_state->succeeded = true;
+}
+
+static void
+delete_client_connect_state (struct multi_instance *mi)
+{
+  ASSERT (mi);
+  if (mi->client_connect_state)
+    {
+      free (mi->client_connect_state);
+      mi->client_connect_state = NULL;
+    }
+}
+
+typedef enum client_connect_return (*client_connect_handler)
+  (struct multi_context *m, struct multi_instance *mi,
+   unsigned int *option_types_found);
+
+struct client_connect_handlers
+{
+  client_connect_handler main;
+  client_connect_handler deferred;
+};
+
+static const struct client_connect_handlers client_connect_handlers[] = {
+  {
+    main: multi_client_connect_source_ccd,
+    deferred: multi_client_connect_fail
+  },
+  {
+    main: multi_client_connect_call_plugin_v1,
+    deferred: multi_client_connect_fail
+  },
+  {
+    main: multi_client_connect_call_plugin_v2,
+    deferred: multi_client_connect_fail
+  },
+  {
+    main: multi_client_connect_call_script,
+    deferred: multi_client_connect_fail
+  },
+  {
+    main: multi_client_connect_mda,
+    deferred: multi_client_connect_fail
+  },
+  {
+    /* End of list.  */
+  }
+};
+
+static enum client_connect_return
+multi_client_handle_single (client_connect_handler handler,
+			    struct multi_context *m,
+			    struct multi_instance *mi)
+{
+  struct client_connect_state *ccs = mi->client_connect_state;
+  enum client_connect_return ret;
+
+  ret = handler (m, mi, &ccs->option_types_found);
+  if (ret == CC_RET_SUCCEEDED)
+    ++ccs->succeeded_count;
+  else if (ret == CC_RET_FAILED)
+    ccs->succeeded = false;
+  else if (ret == CC_RET_DEFERRED)
+    {
+      /* Signal that we're deferring.  */
+      return ret;
+    }
+  return ret;
+}
+
+/*
+ * Called as soon as the SSL/TLS connection authenticates.
+ *
+ * Instance-specific directives to be processed:
+ *
+ *   iroute start-ip end-ip
+ *   ifconfig-push local remote-netmask
+ *   push
+ */
+static void
+multi_connection_established (struct multi_context *m, struct multi_instance *mi)
+{
+  if (tls_authentication_status (mi->context.c2.tls_multi, 0) == TLS_AUTHENTICATION_SUCCEEDED)
+    {
+      struct client_connect_state *ccs = mi->client_connect_state;
+      enum client_connect_return ret;
+
+      if (!ccs)
+	{
+	  /* This is the first time that we run client-connect handlers
+	     for this connection. */
+
+	  new_client_connect_state (mi);
+	  ccs = mi->client_connect_state;
+
+          multi_client_connect_early_setup (m, mi);
+	}
+      else
+	{
+	  /* We are returning from a deferred handler.  Check whether the
+	     handler has been completed yet.  */
+
+	  ASSERT (client_connect_handlers[ccs->cur_handler_idx].main);
+	  ASSERT (client_connect_handlers[ccs->cur_handler_idx].deferred);
+
+	  ret = multi_client_handle_single
+		  (client_connect_handlers[ccs->cur_handler_idx].deferred, m,
+		   mi);
+	  if (ret == CC_RET_DEFERRED)
+	    return;
+
+	  /* Proceed to next handler.  */
+	  ++ccs->cur_handler_idx;
+	}
+
+
+      /* Cycle through all (remaining) client-connect handlers until all
+	 have completed, one of them fails or one of them defers.  */
+      while (ccs->succeeded &&
+	     client_connect_handlers[ccs->cur_handler_idx].main)
+	{
+	  ret = multi_client_handle_single
+		  (client_connect_handlers[ccs->cur_handler_idx].main, m, mi);
+	  if (ret == CC_RET_DEFERRED)
+	    return;
+
+	  /* Proceed to next handler.  */
+	  ++ccs->cur_handler_idx;
+	}
+
+      /* Done with all client-connect handlers now.  */
+
+      multi_client_connect_late_setup (m, mi, ccs->option_types_found,
+				       ccs->succeeded, ccs->succeeded_count);
+
+      /* Clean-up.  */
+      delete_client_connect_state (mi);
+
+      /* set flag so we don't get called again */
+      mi->connection_established_flag = true;
+    }
+
+  /*
+   * Reply now to client's PUSH_REQUEST query
+   */
+  mi->context.c2.push_reply_deferred = false;
+}
 
 /*
  * Add a mbuf buffer to a particular
