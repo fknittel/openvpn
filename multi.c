@@ -1492,13 +1492,12 @@ multi_client_connect_post_plugin (struct multi_context *m,
 /*
  * Called to load management-derived client-connect config
  */
-static void
+static enum client_connect_return
 multi_client_connect_mda (struct multi_context *m,
 			  struct multi_instance *mi,
-			  unsigned int *option_types_found,
-			  int *cc_succeeded,
-			  int *cc_succeeded_count)
+			  unsigned int *option_types_found)
 {
+  enum client_connect_return ret = CC_RET_SKIPPED;
 #ifdef MANAGEMENT_DEF_AUTH
   if (mi->cc_config)
     {
@@ -1524,9 +1523,10 @@ multi_client_connect_mda (struct multi_context *m,
       multi_select_virtual_addr (m, mi);
       multi_set_virtual_addr_env (m, mi);
 
-      ++*cc_succeeded_count;
+      ret = CC_RET_SUCCEEDED;
     }
 #endif
+  return ret;
 }
 
 static void
@@ -1582,11 +1582,13 @@ multi_client_connect_early_setup (struct multi_context *m,
  * Try to source a dynamic config file from the
  * --client-config-dir directory.
  */
-static void
+static enum client_connect_return
 multi_client_connect_source_ccd (struct multi_context *m,
 				 struct multi_instance *mi,
 				 unsigned int *option_types_found)
 {
+  enum client_connect_return ret = CC_RET_SKIPPED;
+
   if (mi->context.options.client_config_dir)
     {
       struct gc_arena gc = gc_new ();
@@ -1624,10 +1626,14 @@ multi_client_connect_source_ccd (struct multi_context *m,
 	   */
 	  multi_select_virtual_addr (m, mi);
 	  multi_set_virtual_addr_env (m, mi);
+
+	  ret = CC_RET_SUCCEEDED;
 	}
 
       gc_free (&gc);
     }
+
+  return ret;
 }
 
 /*
@@ -1635,19 +1641,16 @@ multi_client_connect_source_ccd (struct multi_context *m,
  *
  * deprecated callback, use a file for passing back return info
  */
-static void
+static enum client_connect_return
 multi_client_connect_call_plugin_v1 (struct multi_context *m,
 				     struct multi_instance *mi,
-				     unsigned int *option_types_found,
-				     int *cc_succeeded,
-				     int *cc_succeeded_count)
+				     unsigned int *option_types_found)
 {
+  enum client_connect_return ret = CC_RET_SKIPPED;
 #ifdef ENABLE_PLUGIN
   ASSERT (m);
   ASSERT (mi);
   ASSERT (option_types_found);
-  ASSERT (cc_succeeded);
-  ASSERT (cc_succeeded_count);
 
   if (plugin_defined (mi->context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT))
     {
@@ -1658,7 +1661,7 @@ multi_client_connect_call_plugin_v1 (struct multi_context *m,
 
       if (!dc_file)
 	{
-	  *cc_succeeded = false;
+	  ret = CC_RET_FAILED;
 	  goto script_depr_failed;
 	}
 
@@ -1671,17 +1674,18 @@ multi_client_connect_call_plugin_v1 (struct multi_context *m,
       if (plug_ret != OPENVPN_PLUGIN_FUNC_SUCCESS)
 	{
 	  msg (M_WARN, "WARNING: client-connect plugin call failed");
-	  *cc_succeeded = false;
+	  ret = CC_RET_FAILED;
 	}
       else
 	{
 	  multi_client_connect_post (m, mi, dc_file, option_types_found);
-	  ++*cc_succeeded_count;
+	  ret = CC_RET_SUCCEEDED;
 	}
 script_depr_failed:
       gc_free (&gc);
     }
 #endif
+  return ret;
 }
 
 /*
@@ -1689,19 +1693,16 @@ script_depr_failed:
  *
  * V2 callback, use a plugin_return struct for passing back return info
  */
-static void
+static enum client_connect_return
 multi_client_connect_call_plugin_v2 (struct multi_context *m,
 				     struct multi_instance *mi,
-				     unsigned int *option_types_found,
-				     int *cc_succeeded,
-				     int *cc_succeeded_count)
+				     unsigned int *option_types_found)
 {
+  enum client_connect_return ret = CC_RET_SKIPPED;
 #ifdef ENABLE_PLUGIN
   ASSERT (m);
   ASSERT (mi);
   ASSERT (option_types_found);
-  ASSERT (cc_succeeded);
-  ASSERT (cc_succeeded_count);
 
   if (plugin_defined (mi->context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT_V2))
     {
@@ -1716,31 +1717,29 @@ multi_client_connect_call_plugin_v2 (struct multi_context *m,
       if (plug_ret != OPENVPN_PLUGIN_FUNC_SUCCESS)
 	{
 	  msg (M_WARN, "WARNING: client-connect-v2 plugin call failed");
-	  *cc_succeeded = false;
+	  ret = CC_RET_FAILED;
 	}
       else
 	{
 	  multi_client_connect_post_plugin (m, mi, &pr, option_types_found);
-	  ++*cc_succeeded_count;
+	  ret = CC_RET_SUCCEEDED;
 	}
 
       plugin_return_free (&pr);
     }
 #endif
+  return ret;
 }
 
-static void
+static enum client_connect_return
 multi_client_connect_call_script (struct multi_context *m,
 				  struct multi_instance *mi,
-				  unsigned int *option_types_found,
-				  int *cc_succeeded,
-				  int *cc_succeeded_count)
+				  unsigned int *option_types_found)
 {
+  enum client_connect_return ret = CC_RET_SKIPPED;
   ASSERT (m);
   ASSERT (mi);
   ASSERT (option_types_found);
-  ASSERT (cc_succeeded);
-  ASSERT (cc_succeeded_count);
 
   if (mi->context.options.client_connect_script)
     {
@@ -1753,7 +1752,7 @@ multi_client_connect_call_script (struct multi_context *m,
       dc_file = create_temp_file (mi->context.options.tmp_dir, "cc", &gc);
       if (!dc_file)
 	{
-	  cc_succeeded = false;
+	  ret = CC_RET_FAILED;
 	  goto script_failed;
 	}
 
@@ -1764,14 +1763,16 @@ multi_client_connect_call_script (struct multi_context *m,
       if (openvpn_run_script (&argv, mi->context.c2.es, 0, "--client-connect"))
 	{
 	  multi_client_connect_post (m, mi, dc_file, option_types_found);
-	  ++cc_succeeded_count;
+	  ret = CC_RET_SUCCEEDED;
 	}
       else
-	cc_succeeded = false;
+	ret = CC_RET_FAILED;
+
 script_failed:
       argv_reset (&argv);
       gc_free (&gc);
     }
+  return ret;
 }
 
 static void
@@ -1904,38 +1905,59 @@ multi_connection_established (struct multi_context *m, struct multi_instance *mi
       unsigned int option_types_found = 0;
       int cc_succeeded = true; /* client connect script status */
       int cc_succeeded_count = 0;
+      enum client_connect_return ret;
 
       multi_client_connect_early_setup (m, mi);
 
-      multi_client_connect_source_ccd (m, mi, &option_types_found);
-
-      multi_client_connect_call_plugin_v1 (m, mi, &option_types_found,
-					   &cc_succeeded, &cc_succeeded_count);
-
-      multi_client_connect_call_plugin_v2 (m, mi, &option_types_found,
-					   &cc_succeeded, &cc_succeeded_count);
-
-      /*
-       * Run --client-connect script.
-       */
       if (cc_succeeded)
 	{
-	  multi_client_connect_call_script (m, mi, &option_types_found,
-					    &cc_succeeded,
-					    &cc_succeeded_count);
+	  ret = multi_client_connect_source_ccd (m, mi, &option_types_found);
+	  if (ret == CC_RET_SUCCEEDED)
+	    ++cc_succeeded_count;
+	  else if (ret == CC_RET_FAILED)
+	    cc_succeeded = false;
 	}
 
-      /*
-       * Check for client-connect script left by management interface client
-       */
       if (cc_succeeded)
 	{
-	  multi_client_connect_mda (m, mi, &option_types_found,
-				    &cc_succeeded, &cc_succeeded_count);
+	  ret = multi_client_connect_call_plugin_v1 (m, mi,
+						     &option_types_found);
+	  if (ret == CC_RET_SUCCEEDED)
+	    ++cc_succeeded_count;
+	  else if (ret == CC_RET_FAILED)
+	    cc_succeeded = false;
 	}
 
-      multi_client_connect_late_setup (m, mi, option_types_found,
-				       cc_succeeded, cc_succeeded_count);
+      if (cc_succeeded)
+	{
+	  ret = multi_client_connect_call_plugin_v2 (m, mi,
+						     &option_types_found);
+	  if (ret == CC_RET_SUCCEEDED)
+	    ++cc_succeeded_count;
+	  else if (ret == CC_RET_FAILED)
+	    cc_succeeded = false;
+	}
+
+      if (cc_succeeded)
+	{
+	  ret = multi_client_connect_call_script (m, mi, &option_types_found);
+	  if (ret == CC_RET_SUCCEEDED)
+	    ++cc_succeeded_count;
+	  else if (ret == CC_RET_FAILED)
+	    cc_succeeded = false;
+	}
+
+      if (cc_succeeded)
+	{
+	  ret = multi_client_connect_mda (m, mi, &option_types_found);
+	  if (ret == CC_RET_SUCCEEDED)
+	    ++cc_succeeded_count;
+	  else if (ret == CC_RET_FAILED)
+	    cc_succeeded = false;
+	}
+
+      multi_client_connect_late_setup (m, mi, option_types_found, cc_succeeded,
+				       cc_succeeded_count);
 
       /* set flag so we don't get called again */
       mi->connection_established_flag = true;
