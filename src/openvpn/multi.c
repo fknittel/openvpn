@@ -2611,9 +2611,9 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
                                                                &dest,
                                                                NULL,
                                                                NULL,
+                                                               0,
                                                                &c->c2.to_tun,
-                                                               DEV_TYPE_TUN,
-                                                               0);
+                                                               DEV_TYPE_TUN);
 
                 /* drop packet if extract failed */
                 if (!(mroute_flags & MROUTE_EXTRACT_SUCCEEDED))
@@ -2712,9 +2712,9 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
 #else
                                                                NULL,
 #endif
+                                                               vid,
                                                                &c->c2.to_tun,
-                                                               DEV_TYPE_TAP,
-                                                               vid);
+                                                               DEV_TYPE_TAP);
 
                 if (mroute_flags & MROUTE_EXTRACT_SUCCEEDED)
                 {
@@ -3016,9 +3016,9 @@ multi_process_incoming_tun(struct multi_context *m, const unsigned int mpp_flags
                                                        NULL,
 #endif
                                                        NULL,
+                                                       vid,
                                                        &m->top.c2.buf,
-                                                       dev_type,
-                                                       vid);
+                                                       dev_type);
 
         if (mroute_flags & MROUTE_EXTRACT_SUCCEEDED)
         {

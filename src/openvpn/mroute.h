@@ -183,8 +183,8 @@ unsigned int mroute_extract_addr_ether(struct mroute_addr *src,
                                        struct mroute_addr *dest,
                                        struct mroute_addr *esrc,
                                        struct mroute_addr *edest,
-                                       const struct buffer *buf,
-                                       uint16_t vid);
+                                       uint16_t vid,
+                                       const struct buffer *buf);
 
 /*
  * Given a raw packet in buf, return the src and dest
@@ -195,9 +195,9 @@ mroute_extract_addr_from_packet(struct mroute_addr *src,
                                 struct mroute_addr *dest,
                                 struct mroute_addr *esrc,
                                 struct mroute_addr *edest,
+                                uint16_t vid,
                                 const struct buffer *buf,
-                                int tunnel_type,
-                                uint16_t vid)
+                                int tunnel_type)
 {
     unsigned int ret = 0;
     verify_align_4(buf);
@@ -207,7 +207,7 @@ mroute_extract_addr_from_packet(struct mroute_addr *src,
     }
     else if (tunnel_type == DEV_TYPE_TAP)
     {
-        ret = mroute_extract_addr_ether(src, dest, esrc, edest, buf, vid);
+        ret = mroute_extract_addr_ether(src, dest, esrc, edest, vid, buf);
     }
     return ret;
 }

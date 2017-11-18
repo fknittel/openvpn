@@ -266,8 +266,8 @@ mroute_extract_addr_ether(struct mroute_addr *src,
                           struct mroute_addr *dest,
                           struct mroute_addr *esrc,
                           struct mroute_addr *edest,
-                          const struct buffer *buf,
-                          uint16_t vid)
+                          uint16_t vid,
+                          const struct buffer *buf)
 {
     unsigned int ret = 0;
     if (BLEN(buf) >= (int) sizeof(struct openvpn_ethhdr))
