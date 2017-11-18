@@ -3897,7 +3897,7 @@ Not implemented on Windows.
 .\"*********************************************************
 .TP
 .B \-\-vlan\-tagging
-Turns the OpenVPN server instance into a switch that understands VLAN-tagging,
+Turns the OpenVPN server instance into a switch that understands VLAN\-tagging,
 based on IEEE 802.1Q.
 
 The tap device and each of the connecting clients is seen as a port of the
@@ -3908,16 +3908,16 @@ setting.
 
 Ethernet frames with a prepended 802.1Q tag are called "tagged". If the VLAN
 Identifier (VID) field in such a tag is non-zero, the frame is called
-"VLAN-tagged". If the VID is zero, but the Priority Control Point (PCP) field
-is non-zero, the frame is called "prio-tagged". If there is no 802.1Q tag, the
+"VLAN\-tagged". If the VID is zero, but the Priority Control Point (PCP) field
+is non\-zero, the frame is called "prio\-tagged". If there is no 802.1Q tag, the
 frame is "untagged".
 
 Using the
 .B \-\-vlan\-pvid v
 option once per client, each port can be associated with a certain VID. Packets
 can only be distributed between ports with a matching VID. Therefore, clients
-with differing VIDs are completely separated from one-another, even if
-.B \-\-client-to-client
+with differing VIDs are completely separated from one\-another, even if
+.B \-\-client\-to\-client
 is activated.
 
 The filtering of packets takes place in the OpenVPN server. Clients do not
@@ -3939,13 +3939,13 @@ Allows the tap device's VLAN tagging policy to be configured. You can choose
 between the following modes:
 
 .B all
-(default) -- Admit all frames.
+(default) \-\- Admit all frames.
 .br
 .B tagged
--- Admit only VLAN-tagged frames.
+\-\- Admit only VLAN-tagged frames.
 .br
 .B untagged
--- Admit only untagged and priority-tagged frames.
+\-\- Admit only untagged and priority-tagged frames.
 
 (Note: Some vendors refer to switch ports running in
 .B tagged
@@ -3953,17 +3953,17 @@ mode as "trunk ports" and switch ports running in
 .B untagged
 mode as "access ports".)
 
-Incoming untagged or priority-tagged packets from clients are assigned with the
+Incoming untagged or priority\-tagged packets from clients are assigned with the
 client's Port VLAN Identifier (PVID) as their VID. In
 .B untagged
-mode, incoming untagged or priority-tagged packets on the tap device are
+mode, incoming untagged or priority\-tagged packets on the tap device are
 associated with the global
 .B \-\-vlan\-pvid
 setting. In
 .B tagged
-mode, any incoming untagged or priority-tagged packets are dropped. For
-VLAN-tagged packets, any priority information is lost as soon as the
-VLAN-tagging is removed.
+mode, any incoming untagged or priority\-tagged packets are dropped. For
+VLAN\-tagged packets, any priority information is lost as soon as the
+VLAN\-tagging is removed.
 
 In
 .B tagged
