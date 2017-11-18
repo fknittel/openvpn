@@ -297,9 +297,14 @@ mroute_extract_addr_ether(struct mroute_addr *src,
             if (buf_advance(&b, sizeof(struct openvpn_ethhdr)))
             {
                 uint16_t proto = ntohs(eth->proto);
-                if (proto == OPENVPN_ETH_P_8021Q
-                    && BLEN(buf) >= (int) sizeof(struct openvpn_8021qhdr))
+                if (proto == OPENVPN_ETH_P_8021Q)
                 {
+                    if (BLEN(buf) < (int) sizeof(struct openvpn_8021qhdr))
+                    {
+                        /* Incomplete 8021q packet, discard. */
+                        return 0;
+                    }
+
                     const struct openvpn_8021qhdr *tag = (const struct openvpn_8021qhdr *) BPTR(buf);
                     proto = ntohs(tag->proto);
                     buf_advance(&b, SIZE_ETH_TO_8021Q_HDR);
