@@ -5,7 +5,7 @@
 #             packet encryption, packet authentication, and
 #             packet compression.
 #
-#  Copyright (C) 2002-2010 OpenVPN Technologies, Inc. <sales@openvpn.net>
+#  Copyright (C) 2002-2017 OpenVPN Technologies, Inc. <sales@openvpn.net>
 #  Copyright (C) 2010      David Sommerseth <dazo@users.sourceforge.net>
 #  Copyright (C) 2006-2012 Alon Bar-Lev <alon.barlev@gmail.com>
 #
@@ -18,10 +18,9 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #  GNU General Public License for more details.
 #
-#  You should have received a copy of the GNU General Public License
-#  along with this program (see the file COPYING included with this
-#  distribution); if not, write to the Free Software Foundation, Inc.,
-#  59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#  You should have received a copy of the GNU General Public License along
+#  with this program; if not, write to the Free Software Foundation, Inc.,
+#  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
 # This option prevents autoreconf from overriding our COPYING and
@@ -54,12 +53,13 @@ BUILT_SOURCES = \
 	config-version.h
 endif
 
-SUBDIRS = build distro include src sample doc tests
+SUBDIRS = build distro include src sample doc vendor tests
 
 dist_doc_DATA = \
 	README \
 	README.IPv6 \
-	README.polarssl \
+	README.mbedtls \
+	Changes.rst \
 	COPYRIGHT.GPL \
 	COPYING
 
@@ -68,17 +68,11 @@ dist_noinst_DATA = \
 	.gitattributes \
 	PORTS \
 	README.IPv6 TODO.IPv6 \
-	README.polarssl \
+	README.mbedtls \
 	openvpn.sln \
 	msvc-env.bat \
 	msvc-dev.bat \
 	msvc-build.bat
-
-if WIN32
-dist_doc_DATA += INSTALL-win32.txt
-else
-dist_noinst_DATA += INSTALL-win32.txt
-endif
 
 dist_noinst_HEADERS = \
 	config-msvc.h \

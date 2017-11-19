@@ -5,7 +5,7 @@
  *             packet encryption, packet authentication, and
  *             packet compression.
  *
- *  Copyright (C) 2010 Fox Crypto B.V. <openvpn@fox-it.com>
+ *  Copyright (C) 2010-2017 Fox Crypto B.V. <openvpn@fox-it.com>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,9 @@
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  *  GNU General Public License for more details.
  *
- *  You should have received a copy of the GNU General Public License
- *  along with this program (see the file COPYING included with this
- *  distribution); if not, write to the Free Software Foundation, Inc.,
- *  59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  You should have received a copy of the GNU General Public License along
+ *  with this program; if not, write to the Free Software Foundation, Inc.,
+ *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
 /**
@@ -79,7 +78,7 @@
  *
  * @subsection key_generation_random Source of random material
  *
- * OpenVPN uses the either the OpenSSL library or the PolarSSL library as its
+ * OpenVPN uses the either the OpenSSL library or the mbed TLS library as its
  * source of random material.
  *
  * In OpenSSL, the \c RAND_bytes() function is called
@@ -92,8 +91,8 @@
  * - For OpenSSL's support for external crypto modules:
  *   http://www.openssl.org/docs/crypto/engine.html
  *
- * In PolarSSL, the Havege random number generator is used. For details, see
- * the PolarSSL documentation.
+ * In mbed TLS, the Havege random number generator is used. For details, see
+ * the mbed TLS documentation.
  *
  * @section key_generation_exchange Key exchange:
  *
